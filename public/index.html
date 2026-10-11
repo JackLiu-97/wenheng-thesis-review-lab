@@ -47,9 +47,8 @@
  <a class="sidebar__brand" href="#dashboard"><span class="brand-mark">文</span><span><span class="sidebar__name">文衡</span><span class="sidebar__tagline">学位论文评审实验平台</span></span></a>
  <nav class="sidebar__nav" aria-label="主导航">
   <button class="sidebar__item sidebar__item--active" data-page="dashboard"><svg class="icon"><use href="#i-dashboard"/></svg>仪表盘</button>
-  <button class="sidebar__item" data-page="review"><svg class="icon"><use href="#i-plus"/></svg>新建评审</button>
-  <button class="sidebar__item" data-page="history"><svg class="icon"><use href="#i-history"/></svg>评审历史</button>
   <button class="sidebar__item" data-page="workspace"><svg class="icon"><use href="#i-workspace"/></svg>评审工作台</button>
+  <button class="sidebar__item" data-page="history"><svg class="icon"><use href="#i-history"/></svg>评审历史</button>
   <button class="sidebar__item" data-page="profile"><svg class="icon"><use href="#i-user"/></svg>个人中心</button>
  </nav>
  <div class="sidebar__bottom">
@@ -89,49 +88,6 @@
  </div>
 </section>
 
-<section id="page-review" class="page hidden">
- <div class="page-header"><div><h1 class="page-title">新建评审</h1><p class="page-desc">上传论文 PDF，填写论文背景并选择模型；多份论文会依次排队评审。</p></div></div>
- <div class="review-layout">
-  <div class="card upload-card">
-   <form id="review-form" class="card__body">
-    <label class="upload-area" id="upload-area" for="paper-file">
-     <span class="upload-symbol" aria-hidden="true"><svg class="icon"><use href="#i-upload"/></svg></span>
-     <span class="upload-area__copy"><span class="upload-area__text"><strong>选择论文 PDF</strong> 或拖拽文件到此处</span><span class="upload-area__hint">可多选，最多 10 份，每份不超过 30 MB</span></span>
-     <input id="paper-file" type="file" accept=".pdf,application/pdf" multiple required>
-     <span id="file-name" class="upload-area__files"></span>
-    </label>
-    <div id="file-settings" class="file-list"></div>
-    <div id="revision-notice" class="notice hidden"></div>
-
-    <div class="form-section">
-     <div class="form-section__head"><h3>论文背景</h3><span class="form-section__hint">论文标题取自文件名；批量上传时作为公共参数，可在上方文件列表中单独覆盖</span></div>
-     <div id="upload-metadata" class="metadata-grid"></div>
-    </div>
-
-    <div class="form-section">
-     <div class="form-section__head"><h3>评审设置</h3></div>
-     <div class="upload-options">
-      <label for="upload-model" class="field"><span>评审模型</span><select id="upload-model"><option value="">正在加载模型…</option></select></label>
-      <p id="upload-model-status" class="field-status"></p>
-     </div>
-     <p class="upload-note">采用平台默认评审标准，并结合学位、学科及完成年月；各维度使用最新保存的评审提示词。</p>
-    </div>
-
-    <details id="standard-preview" class="preview-box hidden"><summary>本次评审标准与提示词</summary><div id="standard-preview-text" class="preview-doc"></div></details>
-    <p id="upload-error" class="error-box hidden" role="alert"></p>
-    <div class="form-actions">
-     <button id="preview-standard" type="button" class="btn btn--outline"><svg class="icon"><use href="#i-eye"/></svg>预览生效标准</button>
-     <button id="submit-btn" class="btn btn--primary btn--lg" type="submit">开始评审</button>
-    </div>
-   </form>
-  </div>
-  <div class="card tasks-card">
-   <div class="card__header"><h2 class="card__title">评审进度</h2><span id="task-active-count" class="live-badge hidden"></span><button class="btn btn--ghost btn--sm" id="refresh-tasks"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button></div>
-   <div class="task-filters" id="task-filters" role="tablist" aria-label="按状态筛选任务"></div>
-   <div class="card__body card__body--flush" id="task-list"><div class="skeleton-list"><span></span><span></span></div></div>
-  </div>
- </div>
-</section>
 
 <section id="page-history" class="page hidden">
  <div class="page-header"><div><h1 class="page-title">评审历史</h1><p class="page-desc">当前账号的全部论文评审记录。</p></div></div>
@@ -175,7 +131,53 @@
 </section>
 
 <section id="page-workspace" class="page page--workspace hidden">
- <div id="workspace-empty" class="empty-state empty-state--page hidden"><svg class="icon"><use href="#i-workspace"/></svg><strong>还没有打开评审记录</strong><span>从评审历史中选择一条记录，或上传论文开始新的评审。</span><span class="empty-state__actions"><button class="btn btn--outline btn--sm" data-page="history">查看评审历史</button><button class="btn btn--primary btn--sm" data-page="review">新建评审</button></span></div>
+ <div id="compose-view" class="compose-view">
+  <div class="page-header"><div><h1 class="page-title">新建评审</h1><p class="page-desc">上传论文 PDF、填写论文背景并选择模型；可在右侧修改各维度提示词并选择版本。评审完成后自动进入结果视图。</p></div><button id="back-to-result" type="button" class="btn btn--outline hidden"><svg class="icon"><use href="#i-workspace"/></svg>返回评审结果</button></div>
+  <div class="compose-layout">
+   <div class="compose-main">
+  <div class="card upload-card">
+   <form id="review-form" class="card__body">
+    <label class="upload-area" id="upload-area" for="paper-file">
+     <span class="upload-symbol" aria-hidden="true"><svg class="icon"><use href="#i-upload"/></svg></span>
+     <span class="upload-area__copy"><span class="upload-area__text"><strong>选择论文 PDF</strong> 或拖拽文件到此处</span><span class="upload-area__hint">可多选，最多 10 份，每份不超过 30 MB</span></span>
+     <input id="paper-file" type="file" accept=".pdf,application/pdf" multiple required>
+     <span id="file-name" class="upload-area__files"></span>
+    </label>
+    <div id="file-settings" class="file-list"></div>
+    <div id="revision-notice" class="notice hidden"></div>
+
+    <div class="form-section">
+     <div class="form-section__head"><h3>论文背景</h3><span class="form-section__hint">论文标题取自文件名；批量上传时作为公共参数，可在上方文件列表中单独覆盖</span></div>
+     <div id="upload-metadata" class="metadata-grid"></div>
+    </div>
+
+    <div class="form-section">
+     <div class="form-section__head"><h3>评审设置</h3></div>
+     <div class="upload-options">
+      <label for="upload-model" class="field"><span>评审模型</span><select id="upload-model"><option value="">正在加载模型…</option></select></label>
+      <p id="upload-model-status" class="field-status"></p>
+     </div>
+     <p class="upload-note">采用平台默认评审标准，并结合学位、学科及完成年月；各维度使用右侧选定版本的评审提示词。</p>
+    </div>
+
+    <details id="standard-preview" class="preview-box hidden"><summary>本次评审标准与提示词</summary><div id="standard-preview-text" class="preview-doc"></div></details>
+    <p id="upload-error" class="error-box hidden" role="alert"></p>
+    <div class="form-actions">
+     <button id="preview-standard" type="button" class="btn btn--outline"><svg class="icon"><use href="#i-eye"/></svg>预览生效标准</button>
+     <button id="submit-btn" class="btn btn--primary btn--lg" type="submit">开始评审</button>
+    </div>
+   </form>
+  </div>
+  <div class="card tasks-card">
+   <div class="card__header"><h2 class="card__title">评审进度</h2><span id="task-active-count" class="live-badge hidden"></span><button class="btn btn--ghost btn--sm" id="refresh-tasks"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button></div>
+   <div class="task-filters" id="task-filters" role="tablist" aria-label="按状态筛选任务"></div>
+   <div class="card__body card__body--flush" id="task-list"><div class="skeleton-list"><span></span><span></span></div></div>
+  </div>
+   </div>
+   <div class="card compose-prompts"><div class="card__header"><h2 class="card__title">提示词配置</h2></div><div id="compose-prompts-slot" class="compose-prompts__slot"></div></div>
+  </div>
+ </div>
+ <div class="result-view">
  <div class="paper-heading">
   <div class="paper-heading__main">
    <div class="crumbs"><span>评审工作台</span></div>
@@ -187,6 +189,7 @@
    <span id="model-status" class="field-status" role="status"></span>
    <button id="export" class="btn btn--outline"><svg class="icon"><use href="#i-download"/></svg>下载 PDF</button>
    <button id="rerun-top" class="btn btn--primary"><svg class="icon"><use href="#i-refresh"/></svg>重新评审</button>
+   <button id="new-review-btn" class="btn btn--outline"><svg class="icon"><use href="#i-plus"/></svg>新建评审</button>
   </div>
  </div>
 
@@ -246,7 +249,7 @@
      <div class="view-heading"><h2>提示词配置</h2><p>六个维度各有一段评审提示词，与系统评分细则一起组成发给模型的完整提示词。系统细则、评分锚点与证据规则固定不变；这里编辑的是每个维度的审读方法与关注要点。</p></div>
      <div class="prompt-dimensions" id="prompt-dimensions"></div>
      <div class="prompt-editor">
-      <div class="editor-heading"><strong id="prompt-title"></strong><select id="version-select" aria-label="提示词版本"></select></div>
+      <div class="editor-heading"><strong id="prompt-title"></strong><label class="version-pick"><span>评审使用版本</span><select id="version-select" aria-label="评审使用的提示词版本"></select></label></div>
       <div id="prompt-meta" class="muted"></div>
       <details class="prompt-system" open><summary>系统评分细则（固定，不可编辑）<span id="prompt-weight"></span></summary><div id="prompt-criteria" class="prompt-criteria"></div></details>
       <label for="prompt-text" class="field-label">本维度评审提示词 <span id="dirty-badge"></span></label>
@@ -270,6 +273,7 @@
     </div>
    </div>
   </section>
+ </div>
  </div>
 </section>
 </main>

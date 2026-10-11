@@ -76,7 +76,7 @@ test('actual HTML/scripts: dashboard, navigation, filters, details and evidence 
 
 test('actual editor: save custom focus, rerun selected model, preserve latest snapshot',async()=>{
  const h=setup();await tick();
- h.click(h.document.querySelector('[data-page="workspace"]'));
+ h.click(h.document.querySelector('[data-open-run]'));await tick();assert(!h.$('page-workspace').classList.contains('is-compose'));
  h.click(h.document.querySelector('[data-tab="prompts"]'));await tick();
  assert.equal(h.$('prompt-text').readOnly,false);
  h.$('prompt-text').value='检查变量控制与统计检验';h.event(h.$('prompt-text'),'input');
@@ -91,7 +91,7 @@ test('actual editor: save custom focus, rerun selected model, preserve latest sn
 
 test('actual upload form: PDF submission, invalid file rejection and empty-account workspace',async()=>{
  const h=setup({empty:true});await tick();
- h.click(h.document.querySelector('[data-page="workspace"]'));assert(!h.$('workspace-empty').classList.contains('hidden'));
+ h.click(h.document.querySelector('[data-page="workspace"]'));assert(h.$('page-workspace').classList.contains('is-compose'));assert.equal(h.$('prompts-view').parentElement.id,'compose-prompts-slot');assert(h.$('back-to-result').classList.contains('hidden'));
  h.click(h.document.querySelector('[data-page="review"]'));
  h.$('paper-file').files=[new File(['%PDF-1.4'],'paper.pdf',{type:'application/pdf'})];h.event(h.$('paper-file'),'change');
  h.fill('upload',{degree_level:metadata.degree_level,degree_category:metadata.degree_category,discipline_category:metadata.discipline_category,major:metadata.major,completion_month:metadata.completion_month});
@@ -175,9 +175,33 @@ test('task list: newest first, superseded failures hidden, status filter and exp
 
 test('workspace overview no longer shows contribution/criteria details or rerun parameter form',async()=>{
  const h=setup();await tick();h.click(h.document.querySelector('[data-open-run]'));await tick();
+ assert(h.$('run-overview').classList.contains('is-collapsed'));
+ assert.deepEqual([...h.document.querySelectorAll('.sidebar__nav [data-page]')].map(b=>b.dataset.page),['dashboard','workspace','history','profile']);
  assert(!h.$('run-overview').textContent.includes('主要贡献与评价边界'));assert(!h.$('run-overview').textContent.includes('评分依据与优先修改清单'));
  assert.equal(h.document.querySelector('.rerun-settings'),null);assert.equal(h.$('rerun-metadata'),null);
  h.click(h.document.querySelector('[data-tab="prompts"]'));await tick();
  assert(h.document.querySelector('[data-tab="prompts"]').textContent.includes('提示词配置'));
  assert(h.$('prompt-criteria').textContent.includes('问题与研究范围'));
+});
+
+test('one review page: compose with chosen prompt versions, then the finished review opens as the result',async()=>{
+ const tasks=[];const h=setup({empty:true,tasks});
+ h.store.prompts[0].push({version:2,date:'2026-01-02',note:'新版本',kind:'focus',text:'第二版提示词'});
+ await tick();
+ h.click(h.document.querySelector('[data-page="review"]'));await tick();
+ assert(h.$('page-workspace').classList.contains('is-compose'));assert.equal(h.$('prompts-view').parentElement.id,'compose-prompts-slot');
+ assert.equal(h.$('prompt-text').value,'第二版提示词');
+ h.$('version-select').value='1';h.event(h.$('version-select'),'change');
+ assert.equal(h.$('prompt-text').value,h.store.prompts[0][0].text);assert(h.$('prompt-status').textContent.includes('历史版本 v1'));
+ h.$('paper-file').files=[new File(['%PDF-1.4'],'paper.pdf',{type:'application/pdf'})];h.event(h.$('paper-file'),'change');
+ h.fill('upload',{degree_level:metadata.degree_level,degree_category:metadata.degree_category,discipline_category:metadata.discipline_category,major:metadata.major,completion_month:metadata.completion_month});
+ h.event(h.$('review-form'),'submit');await tick();
+ const request=h.requests.find(r=>r.url==='/api/review');assert.deepEqual(JSON.parse(request.options.body.get('prompt_versions')),[1,1,1,1,1,1]);
+ assert(h.$('page-workspace').classList.contains('is-compose'));
+ tasks.push({task_id:'test-task',filename:'paper.pdf',provider:'gpt',model:'test-gpt',status:'succeeded',stage:'completed',progress:100,created_at:'2026-01-03T00:00:00Z',run_id:'run-one',report:{status:'ready'},metadata:null,can_retry:false});
+ await vm.runInContext('refreshPortal()',h.context);await tick();
+ assert(!h.$('page-workspace').classList.contains('is-compose'));assert.equal(h.context.location.hash,'#workspace/run-one');
+ assert.equal(h.$('prompts-view').parentElement.className,'review-pane');
+ h.click(h.$('new-review-btn'));assert(h.$('page-workspace').classList.contains('is-compose'));assert(!h.$('back-to-result').classList.contains('hidden'));
+ h.click(h.$('back-to-result'));assert(!h.$('page-workspace').classList.contains('is-compose'));
 });

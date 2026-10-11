@@ -1,5 +1,5 @@
 'use strict';
-let account=null,archive=[],accountTasks=[],portalModels=[],parserReady=false,refreshing=false,uploading=false,activePage='dashboard';
+const awaitingTasks=new Set();let account=null,archive=[],accountTasks=[],portalModels=[],parserReady=false,refreshing=false,uploading=false,activePage='dashboard';
 const originalFetch=window.fetch.bind(window);
 window.fetch=async(...args)=>{
  const response=await originalFetch(...args);
@@ -10,23 +10,29 @@ async function api(url,options){
  const response=await fetch(url,options);const data=await response.json();
  if(!response.ok)throw Error(data.error||'请求失败');return data;
 }
-const pageTitles={dashboard:'仪表盘',review:'新建评审',history:'评审历史',workspace:'评审工作台',profile:'个人中心'};
+const pageTitles={dashboard:'仪表盘',history:'评审历史',workspace:'评审工作台',profile:'个人中心'};
 function relativeTime(value){const time=new Date(value).getTime();if(!time)return formatDate(value);const seconds=(Date.now()-time)/1000;if(seconds<60)return '刚刚';if(seconds<3600)return Math.floor(seconds/60)+' 分钟前';if(seconds<86400)return Math.floor(seconds/3600)+' 小时前';if(seconds<86400*7)return Math.floor(seconds/86400)+' 天前';return formatDate(value);}
-function setPage(name,updateHash=true){
- if(!['dashboard','review','history','workspace','profile'].includes(name))name='dashboard';
+// The review page has two modes: compose (upload, prompts, progress) and result (an opened run).
+// The prompt editor is a single element that moves between the two.
+function setMode(compose){
+ composeMode=!!compose||!realRun;
+ $('page-workspace').classList.toggle('is-compose',composeMode);$('back-to-result').classList.toggle('hidden',!realRun);
+ const view=$('prompts-view');
+ if(composeMode){$('compose-prompts-slot').appendChild(view);view.classList.remove('hidden');renderPromptView();if(!promptVersions)loadPromptVersions();}
+ else{document.querySelector('.review-pane').insertBefore(view,$('history-view'));tab(document.querySelector('[data-tab].active')?.dataset.tab||'results');}
+}
+function setPage(name,updateHash=true,compose){
+ if(name==='review'){name='workspace';compose=true;}
+ if(!['dashboard','history','workspace','profile'].includes(name))name='dashboard';
  const previous=activePage;activePage=name;
- document.title=(name==='workspace'&&realRun?(realRun.metadata?.title||realRun.filename):pageTitles[name])+' · 文衡';
+ if(name==='workspace')setMode(compose??composeMode);
+ document.title=(name==='workspace'?(composeMode?'新建评审':realRun.metadata?.title||realRun.filename):pageTitles[name])+' · 文衡';
  if(previous!==name&&typeof window.scrollTo==='function')window.scrollTo({top:0});
- for(const page of ['dashboard','review','history','workspace','profile'])$('page-'+page).classList.toggle('hidden',page!==name);
+ for(const page of ['dashboard','history','workspace','profile'])$('page-'+page).classList.toggle('hidden',page!==name);
  document.querySelectorAll('.sidebar [data-page]').forEach(b=>b.classList.toggle('sidebar__item--active',b.dataset.page===name));
  $('sidebar').classList.remove('sidebar--open');$('sidebar-overlay').classList.remove('sidebar-overlay--visible');$('mobile-menu-btn').setAttribute('aria-expanded','false');
- if(updateHash)history.replaceState(null,'','#'+name+(name==='workspace'&&realRun?'/'+realRun.id:''));
- if(name==='workspace'){
-  $('workspace-empty').classList.toggle('hidden',!!realRun);
-  $('page-workspace').classList.toggle('is-empty',!realRun);
-  if(!realRun){document.querySelector('.paper-heading h1').textContent='评审工作台';$('issue-list').innerHTML='<div class="empty-state">暂无评审结果，请先上传论文</div>';for(const id of ['count-issues','count-major','count-minor','count-positive','issue-total','run-total'])if($(id))$(id).textContent='0';}
-  else requestAnimationFrame(updateVisiblePage);
- }
+ if(updateHash)history.replaceState(null,'','#'+(name==='workspace'?(composeMode?'review':'workspace/'+realRun.id):name));
+ if(name==='workspace'&&!composeMode)requestAnimationFrame(updateVisiblePage);
 }
 function reportAction(run,compact=false){
  const pending=['pending','generating'].includes(run.report?.status),cls=compact?'link-btn':'btn btn--outline btn--sm';
@@ -191,10 +197,16 @@ function renderArchive(){
 }
 async function refreshPortal(){
  if(refreshing)return;refreshing=true;
- try{[archive,accountTasks]=await Promise.all([api('/api/runs'),api('/api/tasks')]);renderArchive();refreshOpenLogs();scheduleTaskPoll();if(realRun){const latest=archive.find(r=>r.id===realRun.id);if(latest){realRun.report=latest.report;updateReportButton();}}}
+ try{[archive,accountTasks]=await Promise.all([api('/api/runs'),api('/api/tasks')]);renderArchive();refreshOpenLogs();openFinishedSubmission();scheduleTaskPoll();if(realRun){const latest=archive.find(r=>r.id===realRun.id);if(latest){realRun.report=latest.report;updateReportButton();}}}
  catch(error){toast(error.message);}finally{refreshing=false;}
 }
 window.refreshPortal=refreshPortal;
+// A submission from this page that finishes opens its result, unless the user moved on or has unsaved prompt edits.
+function openFinishedSubmission(){
+ const done=accountTasks.filter(t=>awaitingTasks.has(t.task_id)&&!isActiveTask(t));for(const t of done)awaitingTasks.delete(t.task_id);
+ const open=done.filter(t=>t.status==='succeeded'&&t.run_id).at(-1);
+ if(open&&activePage==='workspace'&&composeMode&&!hasPromptDrafts())openRun(open.run_id);
+}
 // While a task is queued or running, poll the lightweight task list every 2 s; when a task
 // finishes, refresh the history too and announce the result.
 let taskPollTimer=null;
@@ -205,7 +217,8 @@ async function pollTasks(){
    const before=new Map(accountTasks.map(t=>[t.task_id,t.status]));const latest=await api('/api/tasks');
    const finished=latest.filter(t=>isActiveTask({status:before.get(t.task_id)})&&!isActiveTask(t));
    accountTasks=latest;
-   if(finished.length){await refreshPortal();for(const t of finished)toast(t.status==='succeeded'?`「${t.filename}」评审完成`:`「${t.filename}」评审未完成：${t.error||t.message}`,t.status==='succeeded'?'success':'error');}
+   if(finished.length){await refreshPortal();
+    for(const t of finished)toast(t.status==='succeeded'?`「${t.filename}」评审完成`:`「${t.filename}」评审未完成：${t.error||t.message}`,t.status==='succeeded'?'success':'error');}
    else{renderTaskLists();refreshOpenLogs();$('stat-running').textContent=accountTasks.filter(isActiveTask).length;}
   }catch{}
  }
@@ -218,7 +231,7 @@ async function openRun(id){
  try{
   const run=await api('/api/runs/'+encodeURIComponent(id));if(serial!==openSerial)return;
   normalizeRun(run);opened.clear();selectedIssue=null;dimensionFilter='all';$('severity-filter').value='all';
-  setPage('workspace');renderAll();tab('results');
+  setPage('workspace',true,false);renderAll();tab('results');
  }catch(error){toast(error.message);}
  finally{if(serial===openSerial){$('page-workspace').classList.remove('is-loading');}topProgress.done();}
 }
@@ -242,13 +255,13 @@ $('review-form').addEventListener('submit',async event=>{
  if(files.length>10||files.some(f=>!f.name.toLowerCase().endsWith('.pdf')||f.size>30*1024*1024)){
   $('upload-error').textContent='每次最多提交 10 份 PDF，每份不超过 30 MB';$('upload-error').classList.remove('hidden');return;
  }
- if(promptSaving||hasPromptDrafts()){toast('请先保存提示词草稿');setPage('workspace');tab('prompts');return;}
+ if(promptSaving||hasPromptDrafts()){toast('请先保存提示词草稿，或载入最新版本放弃修改');return;}
  if(revisionPaperId&&files.length!==1){toast('修订稿一次只能选择一份文件');return;}
  let metadata;try{metadata=files.map(file=>validateClientMetadata(fileMetadata(file)));}catch(error){$('upload-error').textContent=error.message;$('upload-error').classList.remove('hidden');return;}
  uploading=true;updateUploadModel();$('upload-model').disabled=true;let submitted=0;
  try{
-  for(const [index,file] of files.entries()){$('submit-btn').innerHTML=`<span class="loader loader--sm loader--light"></span>正在提交 ${index+1} / ${files.length}`;const form=new FormData();form.set('file',file);form.set('provider',$('upload-model').value);form.set('metadata',JSON.stringify(metadata[index]));if(revisionPaperId)form.set('paper_id',revisionPaperId);await api('/api/review',{method:'POST',body:form});submitted++;}
-  $('review-form').reset();perFileSettings.clear();revisionPaperId=null;$('revision-notice').classList.add('hidden');droppedFiles=null;$('paper-file').required=true;showFiles();toast(`已提交 ${submitted} 份论文，可在右侧任务列表实时查看进度`);
+  for(const [index,file] of files.entries()){$('submit-btn').innerHTML=`<span class="loader loader--sm loader--light"></span>正在提交 ${index+1} / ${files.length}`;const form=new FormData();form.set('file',file);form.set('provider',$('upload-model').value);form.set('metadata',JSON.stringify(metadata[index]));const versions=selectedPromptVersions();if(versions)form.set('prompt_versions',JSON.stringify(versions));if(revisionPaperId)form.set('paper_id',revisionPaperId);const accepted=await api('/api/review',{method:'POST',body:form});awaitingTasks.add(accepted.task_id);if(!submitted){expandedTasks.add(accepted.task_id);}submitted++;}
+  $('review-form').reset();perFileSettings.clear();revisionPaperId=null;$('revision-notice').classList.add('hidden');droppedFiles=null;$('paper-file').required=true;showFiles();toast(`已提交 ${submitted} 份论文，可在下方评审进度中实时查看；完成后自动打开结果`);
  }catch(error){$('upload-error').textContent=`${submitted?`已提交 ${submitted} 份；剩余文件未提交。`:''}${error.message}`;$('upload-error').classList.remove('hidden');droppedFiles=files.slice(submitted);$('paper-file').required=false;showFiles();}
  finally{uploading=false;$('submit-btn').textContent='开始评审';$('upload-model').disabled=false;updateUploadModel();await refreshPortal();if(submitted&&narrowScreen())$('task-list').scrollIntoView?.({behavior:'smooth',block:'start'});}
 });
@@ -263,6 +276,8 @@ if($('history-sort'))$('history-sort').addEventListener('change',renderArchive);
 async function manualRefresh(button){if(button.classList.contains('is-busy'))return;button.classList.add('is-busy');const started=Date.now();await refreshPortal();setTimeout(()=>button.classList.remove('is-busy'),Math.max(0,500-(Date.now()-started)));}
 $('refresh-history-btn').addEventListener('click',()=>manualRefresh($('refresh-history-btn')));
 $('refresh-tasks').addEventListener('click',()=>manualRefresh($('refresh-tasks')));
+$('new-review-btn').addEventListener('click',()=>setPage('workspace',true,true));
+$('back-to-result').addEventListener('click',()=>{if(realRun)setPage('workspace',true,false);});
 $('export').addEventListener('click',()=>{if(realRun)downloadReport(realRun.id);else toast('请先选择一条评审记录');});
 $('logout-btn').addEventListener('click',async()=>{try{await api('/api/auth/logout',{method:'POST'});window.location.replace('/login.html');}catch(error){toast(error.message);}});
 $('password-form').addEventListener('submit',async event=>{
@@ -339,12 +354,12 @@ document.addEventListener('keydown',event=>{
  if(event.key==='Escape'){
   if($('sidebar').classList.contains('sidebar--open')){setPage(activePage,false);return;}
   if(typing){target.blur?.();return;}
-  if(activePage==='workspace'&&selectedIssue){selectedIssue=null;renderHighlights();renderIssues();}
+  if(activePage==='workspace'&&!composeMode&&selectedIssue){selectedIssue=null;renderHighlights();renderIssues();}
   return;
  }
  if(typing||event.metaKey||event.ctrlKey||event.altKey)return;
  if((event.key==='Enter'||event.key===' ')&&target.matches&&target.matches('[role="button"][data-page]')){event.preventDefault();setPage(target.dataset.page);return;}
- if(activePage==='workspace'&&realRun&&!$('results-view').classList.contains('hidden')&&/^[jk]$/i.test(event.key)){event.preventDefault();stepIssue(/j/i.test(event.key)?1:-1);return;}
+ if(activePage==='workspace'&&!composeMode&&realRun&&!$('results-view').classList.contains('hidden')&&/^[jk]$/i.test(event.key)){event.preventDefault();stepIssue(/j/i.test(event.key)?1:-1);return;}
  if(event.key==='/'&&activePage==='history'){event.preventDefault();$('history-search').focus();}
 });
 window.addEventListener('beforeunload',event=>{if(typeof hasPromptDrafts==='function'&&hasPromptDrafts()){event.preventDefault();event.returnValue='';}});

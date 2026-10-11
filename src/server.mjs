@@ -36,7 +36,13 @@ function publicTask(t){const report=t.run_id?repo.report(t.run_id):null;return {
 function publicReport(r){if(!r)return null;const {storage_path,sha256,...result}=r;return result;}
 function publicRun(r){const {owner_id,...result}=r;return {...result,report:publicReport(result.report)};}
 async function sendFile(res,filename,type){await fsp.access(filename).catch(error=>{if(error.code==='ENOENT')throw fail(404,'文件不存在，请检查文件存储或重新生成报告');throw error;});res.setHeader('Content-Type',type);const stream=fs.createReadStream(filename);stream.on('error',()=>res.destroy());stream.pipe(res);}
-function snapshot(owner,metadata,config){return {metadata,standard:structuredClone(standard),snapshots:repo.prompts(owner).map(v=>structuredClone(v.at(-1))),prompt_template_version:promptTemplateVersion,model_config:config};}
+// Each dimension uses the chosen prompt version, or its latest version when none is chosen.
+function promptSnapshots(owner,versions){
+ const all=repo.prompts(owner);if(versions==null)return all.map(v=>structuredClone(v.at(-1)));
+ if(!Array.isArray(versions)||versions.length!==all.length)throw fail(400,'提示词版本参数无效');
+ return all.map((list,i)=>{const chosen=versions[i]==null?list.at(-1):list.find(v=>v.version===versions[i]);if(!chosen)throw fail(400,`所选提示词版本不存在：第 ${i+1} 维度 v${versions[i]}`);if(chosen.kind!=='focus')throw fail(400,'旧版完整提示词不能直接用于评审，请选择评审提示词版本');return structuredClone(chosen);});
+}
+function snapshot(owner,metadata,config,versions=null){return {metadata,standard:structuredClone(standard),snapshots:promptSnapshots(owner,versions),prompt_template_version:promptTemplateVersion,model_config:config};}
 
 async function handler(req,res){
  const url=new URL(req.url,'http://localhost');
@@ -56,7 +62,7 @@ async function handler(req,res){
   if(req.method==='GET'&&url.pathname==='/api/config/status')return send(res,200,{mineru_configured:Boolean(process.env.MINERU_TOKEN),models:modelOptions()});
   if(req.method==='GET'&&url.pathname==='/api/review-options')return send(res,200,{...reviewOptions(),models:modelOptions()});
   if(req.method==='POST'&&url.pathname==='/api/review-preview'){
-   const input=await jsonBody(req),metadata=validateMetadata(input.metadata,input.filename),request=snapshot(user.id,metadata,null);
+   const input=await jsonBody(req),metadata=validateMetadata(input.metadata,input.filename),request=snapshot(user.id,metadata,null,input.prompt_versions??null);
    return send(res,200,{metadata,standard:standard.name,weights:standard.degree_profiles[metadata.degree_type].weights,prompt:buildPrompt(request.snapshots,[],request)});
   }
   if(req.method==='GET'&&url.pathname==='/api/prompts')return send(res,200,repo.prompts(user.id));
@@ -92,7 +98,8 @@ async function handler(req,res){
     if(!process.env.MINERU_TOKEN)throw fail(400,'论文解析服务尚未配置');filename=safeName(file.name);
    }
    let input=previous?.metadata;try{if(form.has('metadata'))input=JSON.parse(form.get('metadata'));}catch{throw fail(400,'无效的论文参数 JSON');}
-   const metadata=validateMetadata(input,filename);const request=snapshot(user.id,metadata,config);const taskId=crypto.randomUUID();
+   let versions=null;try{if(form.has('prompt_versions'))versions=JSON.parse(form.get('prompt_versions'));}catch{throw fail(400,'提示词版本参数无效');}
+   const metadata=validateMetadata(input,filename);const request=snapshot(user.id,metadata,config,versions);const taskId=crypto.randomUUID();
    const paperId=form.get('paper_id')||null;if(paperId&&!repo.paper(paperId,user.id))throw fail(404,'论文不存在');
    if(previous&&paperId)throw fail(400,'重新评审不能同时指定修订稿论文');
    let storagePath=null,versionId=null;

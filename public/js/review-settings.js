@@ -48,14 +48,15 @@ function renderPreviewDocument(container,text){
  }catch{container.innerHTML=`<pre>${esc(text)}</pre>`;}
 }
 async function previewMetadata(meta,workspace=false){
- try{if(!workspace)validateClientMetadata(meta);const response=await api('/api/review-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata:meta})});const prefix=workspace?'rerun-preview':'standard-preview';$(prefix).classList.remove('hidden');$(prefix).open=true;renderPreviewDocument($(prefix+'-text'),response.prompt);if($(prefix).scrollIntoView)$(prefix).scrollIntoView({behavior:'smooth',block:'nearest'});}
+ try{if(!workspace)validateClientMetadata(meta);const response=await api('/api/review-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata:meta,prompt_versions:selectedPromptVersions()})});const prefix=workspace?'rerun-preview':'standard-preview';$(prefix).classList.remove('hidden');$(prefix).open=true;renderPreviewDocument($(prefix+'-text'),response.prompt);if($(prefix).scrollIntoView)$(prefix).scrollIntoView({behavior:'smooth',block:'nearest'});}
  catch(error){toast(error.message);}
 }
 function fillUploadMetadata(values){$('upload-metadata').innerHTML=metadataForm('upload',values);renderFileSettings();}
 // 重新评审直接沿用本论文首次评审的参数；缺少参数的历史记录不能直接重评。
 function rerunMetadata(){if(!realRun?.metadata?.degree_type)throw Error('该历史记录缺少学位、学科等参数，无法直接重新评审，请重新上传论文');return structuredClone(realRun.metadata);}
 function scoreTone(score){return score==null?'none':score>=90?'a':score>=80?'b':score>=70?'c':score>=60?'d':'e';}
-function overviewCollapsed(){try{return localStorage.getItem('wenheng.overviewCollapsed')==='1';}catch{return false;}}
+// The overview starts collapsed; it stays open only after the viewer expands it.
+function overviewCollapsed(){try{return localStorage.getItem('wenheng.overviewCollapsed')!=='0';}catch{return true;}}
 function renderRunOverview(){
  if(!realRun||!reviewSettings)return;const r=realRun;
  const fmt=n=>n==null?'—':Number(n).toFixed(1);
@@ -97,6 +98,8 @@ async function initReviewSettings(){
  reviewSettings=await api('/api/review-options');fillUploadMetadata({});
  $('history-degree').innerHTML='<option value="">全部学位</option>'+Object.entries(reviewSettings.degrees).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');
  $('upload-metadata').addEventListener('input',updateFileSummaries);$('upload-metadata').addEventListener('change',updateFileSummaries);
+ // The prompt editor shows the dimension weight for the degree chosen here.
+ $('upload-metadata').addEventListener('change',()=>{if(composeMode&&activePage==='workspace')renderPromptView();});
  $('file-settings').addEventListener('input',event=>{const group=event.target.closest('[data-file-fields]');if(group){perFileSettings.set(selectedFiles()[Number(group.dataset.fileFields)],readMetadata(group));updateFileSummaries();}});
  $('file-settings').addEventListener('change',event=>{const group=event.target.closest('[data-file-fields]');if(group){perFileSettings.set(selectedFiles()[Number(group.dataset.fileFields)],readMetadata(group));updateFileSummaries();}});
  $('file-settings').addEventListener('click',event=>{const remove=event.target.closest('[data-remove-file]');if(remove){event.preventDefault();removeSelectedFile(Number(remove.dataset.removeFile));return;}const b=event.target.closest('[data-file-preview]');if(b)previewMetadata(fileMetadata(selectedFiles()[Number(b.dataset.filePreview)]));});

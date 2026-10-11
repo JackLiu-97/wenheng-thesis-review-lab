@@ -75,7 +75,7 @@ test('editor preserves per-dimension drafts and saves only the selected focus',a
   return elements.get(id);
  };
  const store={prompts:defaultPrompts(),runs:[]};let saved;
- const context=vm.createContext({$:get,dimensions,promptDim:0,esc:x=>x,current:()=>({snapshots:[{version:1}]}),toast(){},
+ const context=vm.createContext({$:get,dimensions,promptDim:0,composeMode:false,realRun:null,esc:x=>x,current:()=>({snapshots:[{version:1}]}),toast(){},
   fetch:async(url,options)=>{
    if(!options)return {ok:true,json:async()=>structuredClone(store.prompts)};
    const index=Number(url.split('/').at(-1));saved=JSON.parse(options.body);

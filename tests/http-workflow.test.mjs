@@ -48,6 +48,9 @@ test('real HTTP upload, two model stages, browser workflow and PDF download',{ti
   const registration=await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'workflow_user',password:'workflow-password'})});assert.equal(registration.status,200);const cookie=registration.headers.get('set-cookie').split(';')[0];
   const request=(url,options={})=>fetch(base+url,{...options,headers:{Cookie:cookie,...options.headers}});
   const options=await (await request('/api/review-options')).json();assert.equal(Object.keys(options.degrees).length,6);assert.equal(Object.keys(options.catalog.tree.academic_bachelor).length,12);
+  // Prompt versions chosen on the page are used as given; unknown versions are rejected.
+  const preview=versions=>request('/api/review-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata,prompt_versions:versions})});
+  assert.equal((await preview([1,1,1,1,1,1])).status,200);assert.equal((await preview([9,1,1,1,1,1])).status,400);assert.equal((await preview([1,1])).status,400);
   browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1100}});await context.addCookies([{name:'review_session',value:cookie.split('=')[1],url:base}]);const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(base+'/#review');
   await page.waitForSelector('#upload-discipline_category');
   const expected=['gpt-6.1-sol','gpt-6-astra','gpt-6-sol','gpt-6-luna','gpt-5.6-sol','deepseek-flash','deepseek-v4-pro'];

@@ -12,7 +12,7 @@ function formatDate(value,withTime=true){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(date).map(p=>[p.type,p.value]));
  return `${parts.year}-${parts.month}-${parts.day}${withTime?` ${parts.hour==='24'?'00':parts.hour}:${parts.minute}`:''}`;
 }
-let state=null,documentData=null,realRun=null,realMode=false,page=1,zoom=100,dimensionFilter='all',selectedIssue=null,opened=new Set(),promptDim=0;
+let composeMode=true,state=null,documentData=null,realRun=null,realMode=false,page=1,zoom=100,dimensionFilter='all',selectedIssue=null,opened=new Set(),promptDim=0;
 const current=()=>state?.runs?.[0];
 let toastTimer=null;
 function toast(message,type){
@@ -108,26 +108,33 @@ function copyIssueText(id,kind){
 let promptVersions=null,promptLoading=false,promptSaving=false;
 const promptDrafts=new Map(),promptSelections=new Map();
 function hasPromptDrafts(){return [...promptDrafts.values()].some(d=>d.dirty);}
+// Version each dimension will be reviewed with: the one chosen in the editor, otherwise the latest.
+const selectedVersion=i=>promptSelections.get(i)??promptVersions?.[i]?.at(-1)?.version;
+function selectedPromptVersions(){return promptVersions?dimensions.map((_,i)=>selectedVersion(i)):null;}
 function renderPromptView(){
  const versions=promptVersions?.[promptDim]||[];
- const selected=promptSelections.get(promptDim)||versions.at(-1)?.version;
+ const selected=selectedVersion(promptDim);
  const snap=versions.find(v=>v.version===selected)||versions.at(-1);
  const draft=promptDrafts.get(promptDim);
- $('prompt-dimensions').innerHTML=dimensions.map((d,i)=>`<button class="${i===promptDim?'active':''}" data-prompt="${i}">${esc(d)}<em>v${promptVersions?.[i]?.at(-1)?.version||'—'}${promptDrafts.get(i)?.dirty?' · 未保存':''}</em></button>`).join('');
+ $('prompt-dimensions').innerHTML=dimensions.map((d,i)=>`<button class="${i===promptDim?'active':''}" data-prompt="${i}">${esc(d)}<em>v${selectedVersion(i)??'—'}${promptDrafts.get(i)?.dirty?' · 未保存':''}</em></button>`).join('');
  $('prompt-title').textContent=dimensions[promptDim];
  // The fixed rubric for this dimension is shown beside the editable prompt so the two read as one prompt.
- const rubric=typeof reviewSettings!=='undefined'&&reviewSettings?.standard?.rubric?.[promptDim],weight=typeof reviewSettings!=='undefined'&&reviewSettings?.degrees?.[realRun?.metadata?.degree_type]?.weights?.[promptDim];
- $('prompt-weight').textContent=weight?`本论文权重 ${weight}%`:'';
+ // While composing, the weight follows the degree chosen in the upload form.
+ const formMeta=composeMode&&typeof readMetadata==='function'&&$('upload-metadata')?readMetadata($('upload-metadata')):null;
+ const degreeType=composeMode?(formMeta?.degree_category&&formMeta?.degree_level?`${formMeta.degree_category}_${formMeta.degree_level}`:null):realRun?.metadata?.degree_type;
+ const rubric=typeof reviewSettings!=='undefined'&&reviewSettings?.standard?.rubric?.[promptDim],weight=typeof reviewSettings!=='undefined'&&reviewSettings?.degrees?.[degreeType]?.weights?.[promptDim];
+ $('prompt-weight').textContent=weight?`${composeMode?'所选学位下':'本论文'}权重 ${weight}%`:'';
  $('prompt-criteria').innerHTML=rubric?rubric.criteria.map(c=>`<div class="prompt-criterion"><strong>${esc(c.name)}</strong><p>${esc(c.check)}</p></div>`).join(''):'<p class="muted">正在载入系统细则…</p>';
  $('prompt-meta').textContent=snap?[typeof formatDate==='function'?formatDate(snap.date):snap.date,snap.note].filter(Boolean).join(' · '):'正在载入提示词…';
- $('version-select').innerHTML=versions.slice().reverse().map(v=>`<option value="${v.version}" ${v.version===snap?.version?'selected':''}>v${v.version}${v.kind!=='focus'?' · 旧版完整提示词':v.version===versions.at(-1).version?' · 最新版本':' · 历史版本'}</option>`).join('');
+ $('version-select').innerHTML=versions.slice().reverse().map(v=>`<option value="${v.version}" ${v.version===snap?.version?'selected':''}>v${v.version}${v.kind!=='focus'?' · 旧版完整提示词（不可用于评审）':v.version===versions.at(-1).version?' · 最新':''}</option>`).join('');
  $('prompt-text').value=draft?.text??snap?.text??'';
  $('prompt-text').readOnly=!snap||snap.kind!=='focus';
  $('version-note').value=draft?.note||'';
  $('version-note').disabled=!snap||snap.kind!=='focus';
  $('save-prompt').disabled=promptSaving||!snap||snap.kind!=='focus';
  $('dirty-badge').textContent=draft?.dirty?'未保存':'';if($('prompt-count'))$('prompt-count').textContent=$('prompt-text').value.length+' / 20000';
- $('prompt-status').textContent=snap?.kind!=='focus'?'旧版提示词只读；点击“载入最新版本”编辑提示词':draft?.dirty?'草稿尚未保存；重新评审前请先保存':'仅编辑本维度评审提示词';
+ const latest=versions.at(-1)?.version;
+ $('prompt-status').textContent=snap?.kind!=='focus'?'旧版提示词只读，不能用于评审；请选择其他版本':draft?.dirty?'草稿尚未保存；评审前请先保存为新版本':snap&&snap.version!==latest?`评审将使用历史版本 v${snap.version}；编辑后保存会生成新版本`:'评审将使用此版本；编辑后保存会生成新版本';
  $('used-version').textContent=current()?.snapshots?.[promptDim]?`v${current().snapshots[promptDim].version}`:'暂无运行';
 }
 async function loadPromptVersions(){
@@ -209,7 +216,7 @@ async function startTest(){
  $('run-overlay').classList.remove('hidden');$('run-step').textContent='正在提交评审任务…';$('run-progress').style.width='5%';
  try{
   // The server reuses the original run's parameters when no metadata is sent.
-  const form=new FormData();form.set('provider',provider);form.set('run_id',realRun.id);
+  const form=new FormData();form.set('provider',provider);form.set('run_id',realRun.id);const versions=selectedPromptVersions();if(versions)form.set('prompt_versions',JSON.stringify(versions));
   const response=await fetch('/api/review',{method:'POST',body:form}),accepted=await response.json();
   if(!response.ok)throw Error(accepted.error||'提交失败');
   let failures=0;
