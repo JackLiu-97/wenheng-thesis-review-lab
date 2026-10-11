@@ -7,9 +7,12 @@ import {parseHTML} from 'linkedom';
 import {dimensions,defaultPrompts,appendFocusVersion} from '../src/prompts.mjs';
 const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
 const app=fs.readFileSync(new URL('../public/js/app.js',import.meta.url),'utf8');
+import {reviewOptions} from '../src/standards.mjs';
+import {metadata} from './helpers.mjs';
+const settings=fs.readFileSync(new URL('../public/js/review-settings.js',import.meta.url),'utf8');
 const portal=fs.readFileSync(new URL('../public/js/portal.js',import.meta.url),'utf8');
 const tick=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));};
-function setup({empty=false}={}){
+function setup({empty=false,legacy=false}={}){
  const {document,Event,HTMLElement,HTMLInputElement,HTMLSelectElement}=parseHTML(html);
  // Geometry and form controls are browser facilities, mocked for DOM logic tests.
  HTMLElement.prototype.getBoundingClientRect=()=>({top:0,bottom:800,width:600,height:800});
@@ -20,13 +23,15 @@ function setup({empty=false}={}){
  document.querySelectorAll('form').forEach(f=>f.reset=()=>{f.querySelectorAll('input').forEach(i=>{i.value='';if(i.type==='file')i.files=[];});});
  const store={prompts:defaultPrompts()},requests=[];
  const block={id:'b1',page:1,bbox:[100,100,600,140],text:'实验没有报告统计检验。'};
- const run={id:'run-one',filename:'test-paper.pdf',created_at:'2026-01-01',page_count:1,page_sizes:[[595,842]],coordinate_size:[1000,1000],source_pdf:'/api/runs/run-one/pdf',model:'test-gpt',snapshots:defaultPrompts().map(v=>v[0]),blocks:[block],reviews:dimensions.map((dimension,i)=>({dimension,summary:'总结',issues:[{id:'issue-'+i,title:'意见 '+i,severity:i===0?'major':'minor',detail:'详细意见',suggestion:'建议',evidence_ids:['b1'],evidence:[block]}]}))};
+ const run={metadata:legacy?null:structuredClone(metadata),total_score:legacy?null:82,grade:legacy?null:'B／良好',report:{status:'ready'},id:'run-one',filename:'test-paper.pdf',created_at:'2026-01-01',page_count:1,page_sizes:[[595,842]],coordinate_size:[1000,1000],source_pdf:'/api/runs/run-one/pdf',model:'test-gpt',snapshots:defaultPrompts().map(v=>v[0]),blocks:[block],reviews:dimensions.map((dimension,i)=>({dimension,summary:'总结',issues:[{id:'issue-'+i,title:'意见 '+i,severity:i===0?'major':'minor',detail:'详细意见',suggestion:'建议',evidence_ids:['b1'],evidence:[block]}]}))};
  const context=vm.createContext({document,console,Event,FormData,Blob,File,URL,URLSearchParams,Date,structuredClone,
   location:{hash:'',href:'',replace(url){this.href=url;}},history:{replaceState(_a,_b,value){context.location.hash=value;}},
   requestAnimationFrame:fn=>{fn();return 1;},setInterval:()=>1,setTimeout:(fn,delay)=>{if(delay===2000)queueMicrotask(fn);return 1;},clearTimeout(){},addEventListener(){},
   fetch:async(url,options={})=>{
    requests.push({url,options});let data;
    if(url==='/api/auth/me')data={user:{username:'tester',phone:'',created_at:'2026-01-01'}};
+   else if(url==='/api/review-options')data=reviewOptions();
+   else if(url==='/api/review-preview')data={prompt:'平台默认评审标准预览',metadata:JSON.parse(options.body).metadata};
    else if(url==='/api/config/status')data={mineru_configured:true,models:[{id:'gpt',model:'test-gpt',configured:true},{id:'deepseek',configured:false}]};
    else if(url==='/api/runs')data=empty?[]:[{...run,issue_count:6}];
    else if(url==='/api/tasks')data=[];
@@ -41,7 +46,7 @@ function setup({empty=false}={}){
   }
  });
  context.window=context;
- vm.runInContext(app,context);vm.runInContext(portal,context);
+ vm.runInContext(app,context);vm.runInContext(settings,context);vm.runInContext(portal,context);
  const $=id=>document.getElementById(id);
  const click=node=>node.dispatchEvent(new Event('click',{bubbles:true}));
  const event=(node,type)=>node.dispatchEvent(new Event(type,{bubbles:true,cancelable:true}));
@@ -81,6 +86,7 @@ test('actual upload form: PDF submission, invalid file rejection and empty-accou
  h.click(h.document.querySelector('[data-page="workspace"]'));assert(!h.$('workspace-empty').classList.contains('hidden'));
  h.click(h.document.querySelector('[data-page="review"]'));
  h.$('paper-file').files=[new File(['%PDF-1.4'],'paper.pdf',{type:'application/pdf'})];h.event(h.$('paper-file'),'change');
+ for(const [key,value] of Object.entries(metadata))h.$('upload-'+key).value=value;
  h.event(h.$('review-form'),'submit');await tick();
  const request=h.requests.find(r=>r.url==='/api/review');assert.equal(request.options.body.get('file').name,'paper.pdf');assert.equal(request.options.body.get('provider'),'gpt');
  h.$('paper-file').files=[new File(['text'],'not-pdf.txt')];h.event(h.$('paper-file'),'change');h.event(h.$('review-form'),'submit');await tick();
@@ -94,13 +100,29 @@ test('an opinion without located evidence does not claim a fabricated page or ev
  const issue=h.$('issue-issue-0');assert(!issue.textContent.includes('1 处证据'));assert(!issue.textContent.includes('第 1 页'));assert(issue.textContent.includes('未定位到原文证据'));
 });
 
+test('batch metadata overrides affect only their own paper and preview uses the final parameters',async()=>{
+ const h=setup({empty:true});await tick();
+ for(const [key,value] of Object.entries(metadata))h.$('upload-'+key).value=value;
+ h.$('paper-file').files=[new File(['%PDF-1.4'],'first.pdf'),new File(['%PDF-1.4'],'second.pdf')];h.event(h.$('paper-file'),'change');
+ h.$('file-1-degree_type').value='academic_doctor';h.event(h.$('file-1-degree_type'),'change');h.$('file-1-major').value='艺术理论';h.event(h.$('file-1-major'),'input');
+ h.click(h.document.querySelector('[data-file-preview="1"]'));await tick();const preview=h.requests.find(r=>r.url==='/api/review-preview');assert.equal(JSON.parse(preview.options.body).metadata.degree_type,'academic_doctor');
+ h.event(h.$('review-form'),'submit');await tick();const submissions=h.requests.filter(r=>r.url==='/api/review');assert.equal(submissions.length,2);
+ const a=JSON.parse(submissions[0].options.body.get('metadata')),b=JSON.parse(submissions[1].options.body.get('metadata'));assert.equal(a.degree_type,'academic_master');assert.equal(a.major,metadata.major);assert.equal(b.degree_type,'academic_doctor');assert.equal(b.major,'艺术理论');assert.equal(b.completion_month,metadata.completion_month);
+});
+
+test('legacy rerun requires metadata and history filters distinguish degree and grade',async()=>{
+ const h=setup({legacy:true});await tick();h.click(h.$('rerun-top'));await tick();assert.equal(h.requests.filter(r=>r.url==='/api/review').length,0);assert(h.$('toast').textContent.includes('学位'));
+ const normal=setup();await tick();normal.$('history-degree').value='academic_doctor';normal.event(normal.$('history-degree'),'change');assert(normal.$('archive-list').textContent.includes('没有匹配'));
+ normal.$('history-degree').value='academic_master';normal.$('history-grade').value='B';normal.event(normal.$('history-grade'),'change');assert(normal.$('archive-list').querySelector('[data-open-run]'));
+});
+
 test('history search, export, PDF controls, mobile navigation and logout are wired',async()=>{
  const h=setup();await tick();
  h.click(h.document.querySelector('[data-page="history"]'));
  h.$('history-search').value='does-not-exist';h.event(h.$('history-search'),'input');assert(h.$('archive-list').textContent.includes('没有匹配'));
  h.$('history-search').value='test-paper';h.event(h.$('history-search'),'input');assert(h.$('archive-list').querySelector('[data-open-run]'));
  assert.equal(h.$('archive-list').querySelector('a[href*="format=json"]').getAttribute('href'),'/api/runs/run-one/export?format=json');
- h.click(h.$('export'));assert.equal(h.context.location.href,'/api/runs/run-one/export');
+ h.click(h.$('export'));assert.equal(h.context.location.href,'/api/runs/run-one/export?format=pdf');
  h.click(h.$('zoom-in'));assert.equal(h.$('zoom-label').textContent,'110%');
  h.click(h.$('fit-page'));assert.equal(h.$('zoom-label').textContent,'100%');
  h.$('highlight-toggle').checked=false;h.event(h.$('highlight-toggle'),'change');assert.equal(h.document.querySelectorAll('.evidence-highlight').length,0);

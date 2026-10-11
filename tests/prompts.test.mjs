@@ -3,16 +3,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {dimensions,defaultPrompts,focusText,migratePrompts,appendFocusVersion,buildPrompt,promptTemplateVersion} from '../src/prompts.mjs';
+import {fixtureRepo,blocks,detailedFixture,synthesisFixture} from './helpers.mjs';
+import {createReviewEngine} from '../src/review-engine.mjs';
+import {validateDetailed} from '../src/review-schema.mjs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 
-test('atomic store replacement retries temporary Windows locks and propagates other failures',async()=>{
- const source=fs.readFileSync(new URL('../src/server.mjs',import.meta.url),'utf8');
- const code=source.slice(source.indexOf('const writeStore='),source.indexOf('let storeQueue='));
- let writes=0,renames=0;
- const context=vm.createContext({storePath:'test-store.json',setTimeout:fn=>{fn();},fsp:{writeFile:async()=>{writes++;},rename:async()=>{if(++renames<4)throw Object.assign(Error('locked'),{code:'EPERM'});}}});
- vm.runInContext(code+';globalThis.write=writeStore;',context);
- await context.write({runs:[]});assert.equal(writes,1);assert.equal(renames,4);
- context.fsp.rename=async()=>{throw Object.assign(Error('disk failure'),{code:'EIO'});};
- await assert.rejects(context.write({runs:[]}),{code:'EIO'});
+test('SQLite transactions roll back changes and enforce uniqueness',async()=>{
+ const f=await fixtureRepo();try{
+  assert.throws(()=>f.repo.transaction(()=>{f.repo.db.prepare('UPDATE papers SET title=? WHERE id=?').run('changed',f.version.paper_id);throw Error('disk failure');}),/disk failure/);
+  assert.equal(f.repo.paper(f.version.paper_id,f.user.id).title,f.request.metadata.title);
+  assert.throws(()=>f.repo.createUser({...f.user,id:'duplicate'}),{status:409});
+ }finally{await f.cleanup();}
 });
 
 test('legacy migration preserves history and runs, is idempotent, and keeps custom text',()=>{
@@ -53,25 +55,16 @@ test('assembled input has one common opening/output section and all six variable
  assert(text.endsWith('[b9] page=4 原文证据'));
 });
 
-test('review uses latest saved variables, archives exact input and preserves run snapshots',async()=>{
- const source=fs.readFileSync(new URL('../src/server.mjs',import.meta.url),'utf8');
- const code=source.slice(source.indexOf('async function reviewPaper('),source.indexOf('const types='));
- const store={prompts:defaultPrompts(),runs:[]},files=new Map();
- appendFocusVersion(store,2,{text:'核对因果推断与对照实验',base_version:1});
- let captured;
- const context=vm.createContext({crypto:{randomUUID:()=> 'test-run'},path:{join:(...x)=>x.join('/')},runDir:'test',safeName:x=>x,structuredClone,
-  fsp:{mkdir:async()=>{},writeFile:async(p,t)=>files.set(p,t)},readStore:async()=>structuredClone(store),updateStore:async fn=>fn(store),
-  buildPrompt,promptTemplateVersion,dimensions,modelOptions:()=>[{id:'gpt',model:'test-model'}],
-  selectedReview:async prompt=>{captured=prompt;return {dimensions:dimensions.map(d=>({dimension:d,summary:'总结',issues:[]}))};}
- });
- vm.runInContext(code+';globalThis.review=reviewPaper;',context);
- const result=await context.review(new Uint8Array(),'paper.pdf','gpt',{blocks:[{id:'b1',page:1,text:'正文'}],page_sizes:[[595,841]]});
- assert(captured.includes('核对因果推断与对照实验'));
- assert.equal(files.get('test/test-run/prompt.txt'),captured);
- assert.equal(result.snapshots[2].version,2);
- appendFocusVersion(store,2,{text:'后续修改',base_version:2});
- assert.equal(result.snapshots[2].text,'核对因果推断与对照实验');
- assert.equal(store.runs[0].snapshots[2].version,2);
+test('review archives exact input and preserves submitted snapshots across later changes',async()=>{
+ const f=await fixtureRepo();try{
+  f.repo.appendPrompt(f.user.id,0,{text:'后续修改不应影响旧任务',base_version:1});
+  const expected=validateDetailed(detailedFixture(),blocks,f.request,f.task.id);let calls=0;
+  const engine=createReviewEngine(f.repo,f.dir,{request:async()=>{}},{parse:async()=>({blocks,pageSizes:[[595,841],[595,841]]}),model:async()=>++calls===1?detailedFixture():synthesisFixture(expected)});
+  await engine.enqueue(f.task.id);const result=f.repo.run(f.task.id);
+  assert.equal(f.repo.task(f.task.id).status,'succeeded');assert.equal(calls,2);assert.equal(result.snapshots[0].version,1);
+  const prompt=await fsp.readFile(path.join(f.dir,'runs',f.task.id,'prompt.txt'),'utf8');assert(!prompt.includes('后续修改不应影响旧任务'));assert(prompt.includes(result.snapshots[0].text));
+  assert.equal(f.repo.db.prepare('SELECT count(*) n FROM review_attempts').get().n,2);
+ }finally{await f.cleanup();}
 });
 
 test('editor preserves per-dimension drafts and saves only the selected focus',async()=>{

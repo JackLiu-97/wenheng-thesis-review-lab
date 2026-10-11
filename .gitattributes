@@ -7,3 +7,5 @@
 *.json text eol=lf
 *.md text eol=lf
 *.example text eol=lf
+*.sql text eol=lf
+*.cmd text eol=crlf

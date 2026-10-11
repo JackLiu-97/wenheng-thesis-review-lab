@@ -5,9 +5,9 @@ const dimensions=['选题质量','文献综述','逻辑严谨性','工作量','�
 let state=null,documentData=null,realRun=null,realMode=false,page=1,zoom=100,dimensionFilter='all',selectedIssue=null,opened=new Set(),promptDim=0;
 const current=()=>state?.runs?.[0];
 function toast(message){const el=$('toast');if(!el)return;el.textContent=message;el.classList.add('visible');setTimeout(()=>el.classList.remove('visible'),3200);}
-function pageSize(){return [1000,1000];}
-function normalizeRun(run){realRun=run;realMode=true;const issues=[];const anchors={};(run.reviews||[]).forEach((review,dim)=>(review.issues||[]).forEach(item=>{const evidence=(item.evidence||[]).filter(e=>e&&Number.isFinite(e.page)&&Array.isArray(e.bbox));const anchor='real-'+item.id;anchors[anchor]={page:evidence[0]?.page||1,quote:evidence[0]?.text||'',count:evidence.length,boxes:evidence.map(e=>({page:e.page,bbox:e.bbox,text:e.text||''}))};issues.push({...item,id:item.id,dim,dimension:review.dimension,anchor,evidence:item.evidence||[],evidence_ids:item.evidence_ids||[]});}));const pages=run.page_count||Math.max(...(run.blocks||[]).map(b=>b.page||1),1);documentData={pages:Array.from({length:pages},(_,i)=>`第 ${i+1} 页`),anchors};state={runs:[{id:run.id,date:run.created_at,scope:'真实论文 · 一次六维度评审',snapshots:run.snapshots||[],issues}],prompts:(run.snapshots||[]).map(x=>[x]),currentRun:run.id};}
-function renderHeader(){const r=current(), issues=r.issues||[];$('current-run-label').textContent=`真实运行 · ${realRun.filename}${realRun.model?' · '+realRun.model:''}`;$('run-total').textContent='1';$('issue-total').textContent=issues.length;$('count-issues').textContent=issues.length;$('count-major').textContent=issues.filter(i=>i.severity==='major').length;const h=document.querySelector('.paper-heading h1');if(h)h.textContent=realRun.filename;const meta=document.querySelector('.paper-meta');if(meta)meta.innerHTML=`<span>▤ ${esc(realRun.filename)}</span><span>${documentData.pages.length} 页</span><span>真实评审结果</span>`;const link=document.querySelector('.pane-header a');if(link)link.href=realRun.source_pdf;}
+function pageSize(){return realRun?.coordinate_size||[1000,1000];}
+function normalizeRun(run){realRun=run;realMode=true;const issues=[];const anchors={};(run.reviews||[]).forEach((review,dim)=>(review.issues||[]).forEach(item=>{const evidence=(item.evidence||[]).filter(e=>e&&Number.isFinite(e.page)&&Array.isArray(e.bbox));const anchor='real-'+item.id;anchors[anchor]={page:evidence[0]?.page||1,quote:evidence[0]?.text||'',count:evidence.length,boxes:evidence.map(e=>({page:e.page,bbox:e.bbox,text:e.text||''}))};issues.push({...item,id:item.id,dim,dimension:review.dimension,anchor,evidence:item.evidence||[],evidence_ids:item.evidence_ids||[]});}));const pages=run.page_count||Math.max(...(run.blocks||[]).map(b=>b.page||1),1);documentData={pages:Array.from({length:pages},(_,i)=>`第 ${i+1} 页`),anchors};state={runs:[{id:run.id,date:run.created_at,scope:'真实论文 · 六维度评审与综合评议',snapshots:run.snapshots||[],issues}],prompts:(run.snapshots||[]).map(x=>[x]),currentRun:run.id};const selected=availableModels.find(m=>m.configured&&m.model===run.model&&(!run.provider||!m.provider||m.provider===run.provider))||availableModels.find(m=>m.id===run.provider&&m.configured);if(selected){$('review-model').value=selected.id;updateModelStatus();}}
+function renderHeader(){const r=current(), issues=r.issues||[];$('current-run-label').textContent=`真实运行 · ${realRun.filename}${realRun.model?' · '+realRun.model:''}`;$('run-total').textContent='1';$('issue-total').textContent=issues.length;$('count-issues').textContent=issues.length;$('count-major').textContent=issues.filter(i=>i.severity==='major').length;const h=document.querySelector('.paper-heading h1');if(h)h.textContent=realRun.metadata?.title||realRun.filename;const meta=document.querySelector('.paper-meta');if(meta)meta.innerHTML=`<span>▤ ${esc(realRun.filename)}</span><span>${documentData.pages.length} 页</span><span>真实评审结果</span>`;const link=document.querySelector('.pane-header a');if(link)link.href=realRun.source_pdf;}
 function renderFilters(){$('dimension-filters').innerHTML=['全部',...dimensions].map((d,i)=>`<button class="${(i===0&&dimensionFilter==='all')||(i>0&&dimensionFilter===i-1)?'active':''}" data-filter="${i===0?'all':i-1}">${esc(d)}</button>`).join('');}
 function renderIssues(){const severity=$('severity-filter').value,issues=current()?.issues||[];let html='';dimensions.forEach((name,d)=>{if(dimensionFilter!=='all'&&dimensionFilter!==d)return;const list=issues.filter(i=>i.dim===d&&(severity==='all'||i.severity===severity));if(!list.length)return;html+=`<div class="dimension-heading">${esc(name)}<span>${list.length} 条</span><div class="dim-line"></div></div>`;list.forEach(i=>{const a=documentData.anchors[i.anchor]||{page:1,quote:'',count:0},open=opened.has(i.id),idx=issues.findIndex(x=>x.id===i.id)+1;html+=`<article class="issue ${selectedIssue===i.id?'selected':''}" id="issue-${i.id}"><div class="issue-main" data-locate="${i.id}" role="button" tabindex="0"><span class="issue-number">${String(idx).padStart(2,'0')}</span><span class="issue-title">${esc(i.title)}</span><span class="severity ${i.severity}">${{major:'重点关注',minor:'改进建议',positive:'值得肯定'}[i.severity]||i.severity}</span></div><div class="issue-bottom">${a.count?`<button class="evidence-link" data-locate="${i.id}">⌖ 第 ${a.page} 页 · ${a.count} 处证据 ↗</button>`:'<span class="evidence-link">未定位到原文证据</span>'}<button class="expand-button" data-expand="${i.id}">${open?'收起详情 −':'展开详情 ＋'}</button></div><div class="issue-details ${open?'':'hidden'}"><div class="detail-label">详细意见</div><p>${esc(i.detail)}</p>${a.count?`<div class="detail-label">原文证据 · 第 ${a.page} 页</div><div class="quote" data-locate="${i.id}" role="button">“${esc(a.quote)}” ↗</div>`:'<div class="detail-label">原文证据</div><p>未定位到原文证据，请结合论文内容人工核实。</p>'}<div class="detail-label">修改建议</div><p>${esc(i.suggestion)}</p></div></article>`;});});$('issue-list').innerHTML=html||'<div class="empty">当前筛选条件下没有意见</div>';}
 function renderHighlights(){
@@ -42,7 +42,7 @@ function setZoom(value){
   const ratio=$('pdf-pages').getBoundingClientRect().width/oldWidth;
   scroller.scrollTo({top:scroller.scrollTop*ratio,behavior:'instant'});updateVisiblePage();
 }
-function renderAll(){renderHeader();renderFilters();renderIssues();renderPage();}
+function renderAll(){renderHeader();renderFilters();renderIssues();renderPage();renderRunOverview();}
 function locate(id,fromPdf=false){
   const issue=current().issues.find(i=>i.id===id);if(!issue)return;
   const a=documentData.anchors[issue.anchor];if(!a)return;
@@ -119,7 +119,7 @@ $('version-select').addEventListener('change',()=>{
 });
 $('restore').addEventListener('click',async()=>{promptDrafts.delete(promptDim);promptSelections.delete(promptDim);await loadPromptVersions();renderPromptView();});
 function tab(name){document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));['results','prompts','history'].forEach(t=>$(t+'-view').classList.toggle('hidden',t!==name));if(name==='history')renderHistory();if(name==='prompts'){renderPromptView();if(!promptVersions)loadPromptVersions();}}
-function renderHistory(){if(!realRun){$('history-list').innerHTML='<div class="empty">尚未选择评审记录</div>';return;}$('history-list').innerHTML=`<article class="history-card current"><div class="history-top"><strong>真实运行 · ${esc(realRun.filename)}</strong><span>✓ 已完成</span></div><p>${esc(realRun.created_at||'')} · ${esc(realRun.model||'历史记录未记录模型')} · 一次六维度真实论文评审</p>${(realRun.snapshots||[]).map((s,i)=>`<details class="snapshot"><summary>${esc(dimensions[i])} · v${s.version} · 本次运行快照</summary><pre>${esc(s.text)}</pre></details>`).join('')}<div class="history-actions"><small>${current().issues.length} 条真实评审意见 · 证据来自论文解析块</small></div></article>`;}
+function renderHistory(){if(!realRun){$('history-list').innerHTML='<div class="empty">尚未选择评审记录</div>';return;}$('history-list').innerHTML=`<article class="history-card current"><div class="history-top"><strong>真实运行 · ${esc(realRun.filename)}</strong><span>✓ 已完成</span></div><p>${esc(realRun.created_at||'')} · ${esc(realRun.model||'历史记录未记录模型')} · 六维度评审与综合评议</p>${(realRun.snapshots||[]).map((s,i)=>`<details class="snapshot"><summary>${esc(dimensions[i])} · v${s.version} · 本次运行快照</summary><pre>${esc(s.text)}</pre></details>`).join('')}<div class="history-actions"><small>${current().issues.length} 条真实评审意见 · 证据来自论文解析块</small></div></article>`;}
 document.addEventListener('click',e=>{const t=e.target.closest('button,[data-locate]');if(!t)return;if(t.dataset.tab)tab(t.dataset.tab);if(t.dataset.prompt!==undefined){promptDim=Number(t.dataset.prompt);renderPromptView();}if(t.dataset.filter){dimensionFilter=t.dataset.filter==='all'?'all':Number(t.dataset.filter);renderFilters();renderIssues();}if(t.dataset.locate)locate(t.dataset.locate);if(t.dataset.expand){opened.has(t.dataset.expand)?opened.delete(t.dataset.expand):opened.add(t.dataset.expand);renderIssues();}if(t.dataset.pdfIssue)locate(t.dataset.pdfIssue,true);});
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-locate]')){e.preventDefault();locate(e.target.dataset.locate);}});
 if($('severity-filter'))$('severity-filter').onchange=renderIssues;
@@ -131,6 +131,13 @@ let scrollFrame=null;
 if($('pdf-scroll'))$('pdf-scroll').addEventListener('scroll',()=>{if(scrollFrame)return;scrollFrame=requestAnimationFrame(()=>{scrollFrame=null;updateVisiblePage();});},{passive:true});
 
 let availableModels=[],testing=false;
+function renderModelSelectors(models){
+ const first=models.find(m=>m.configured&&m.is_default)||models.find(m=>m.configured)||models[0];
+ for(const id of ['upload-model','review-model']){const select=$(id);if(!select)continue;const previous=select.value;
+  select.innerHTML=models.map(m=>`<option value="${esc(m.id)}">${esc(m.label||m.model||m.id)}${m.configured?'':'（未配置）'}</option>`).join('');
+  select.value=models.some(m=>m.id===previous&&m.configured)?previous:(first?.id||'');
+ }
+}
 function updateModelStatus(){
  const model=availableModels.find(x=>x.id===$('review-model').value);
  $('model-status').textContent=model?.configured?(model.model||'已配置'):'未配置，请先设置 API Key 和模型';
@@ -138,7 +145,7 @@ function updateModelStatus(){
  $('rerun-prompt').disabled=testing||!model?.configured;
 }
 async function loadModels(){
- try{const response=await fetch('/api/config/status');if(!response.ok)throw Error();const config=await response.json();availableModels=config.models||[];updateModelStatus();}
+ try{const response=await fetch('/api/config/status');if(!response.ok)throw Error();const config=await response.json();availableModels=config.models||[];renderModelSelectors(availableModels);updateModelStatus();}
  catch{$('model-status').textContent='无法读取模型配置，请刷新重试';$('rerun-top').disabled=true;$('rerun-prompt').disabled=true;}
 }
 async function startTest(){
@@ -149,7 +156,7 @@ async function startTest(){
  testing=true;updateModelStatus();$('review-model').disabled=true;
  $('run-overlay').classList.remove('hidden');$('run-step').textContent='正在提交测试任务…';$('run-progress').style.width='5%';
  try{
-  const form=new FormData();form.set('provider',provider);form.set('run_id',realRun.id);
+  const form=new FormData();form.set('provider',provider);form.set('run_id',realRun.id);form.set('metadata',JSON.stringify(rerunMetadata()));
   const response=await fetch('/api/review',{method:'POST',body:form}),accepted=await response.json();
   if(!response.ok)throw Error(accepted.error||'提交失败');
   let failures=0;
@@ -159,8 +166,8 @@ async function startTest(){
    try{const response=await fetch('/api/tasks/'+accepted.task_id);if(!response.ok)throw Error('无法读取任务状态');task=await response.json();failures=0;}
    catch(error){if(++failures>=5)throw Error('任务状态连接中断，请稍后刷新查看结果');continue;}
    $('run-step').textContent=task.message;$('run-progress').style.width=task.progress+'%';
-   if(task.status==='failed')throw Error(task.error||'评审失败');
-   if(task.status==='succeeded'){normalizeRun(task.run);opened.clear();selectedIssue=null;dimensionFilter='all';$('severity-filter').value='all';renderAll();tab('results');toast('测试完成 · '+task.run.model);if(window.refreshPortal)await window.refreshPortal();break;}
+   if(['failed','interrupted'].includes(task.status))throw Error(task.error||'评审失败');
+   if(task.status==='succeeded'){normalizeRun(task.run);history.replaceState(null,'','#workspace/'+encodeURIComponent(task.run.id));opened.clear();selectedIssue=null;dimensionFilter='all';$('severity-filter').value='all';renderAll();tab('results');toast('测试完成 · '+task.run.model);if(window.refreshPortal)await window.refreshPortal();break;}
   }
  }catch(error){toast(error.message);$('model-status').textContent=error.message;}
  finally{testing=false;$('review-model').disabled=false;$('run-overlay').classList.add('hidden');const configured=availableModels.find(x=>x.id===$('review-model').value)?.configured;$('rerun-top').disabled=!configured;$('rerun-prompt').disabled=!configured;}

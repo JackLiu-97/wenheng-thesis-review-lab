@@ -37,6 +37,6 @@ Copy-Item -LiteralPath config/oral-download.env.example -Destination config/oral
 .venv/Scripts/python.exe scripts/export_oral_papers.py --env-file config/oral-download.env --limit 1
 ```
 
-首次使用先通过 `--help` 查看下载等选项。默认清单位于 `data/oral_papers.json`，论文数据位于 `data/oral_papers/`；已有非空 PDF 默认跳过，除非传入 `--force`。该工具依赖外部 PriorReview 数据库的表结构，与平台自身 JSON 存储相互独立。
+首次使用先通过 `--help` 查看下载等选项。默认清单位于 `data/oral_papers.json`，论文数据位于 `data/oral_papers/`；已有非空 PDF 默认跳过，除非传入 `--force`。该工具依赖外部 PriorReview 数据库的表结构，与平台自身 SQLite 存储相互独立。
 
 真实配置文件 `config/oral-download.env` 及全部输出都被 Git 忽略。

@@ -7,6 +7,8 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import {dimensions,defaultPrompts} from '../src/prompts.mjs';
+import {openDatabase} from '../src/database.mjs';
+import {metadata} from './helpers.mjs';
 
 test('real HTTP account lifecycle, private data, exports and task failure recovery',{timeout:30000},async()=>{
  const data=await fs.mkdtemp(path.join(os.tmpdir(),'review-accounts-test-'));
@@ -59,15 +61,16 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
   assert.equal((await a('/api/prompts/0',post({text:'',base_version:2}))).status,400);
   assert.equal((await (await b('/api/prompts')).json())[0].length,1);
   assert.equal((await a('/api/auth/logout',{method:'POST',headers:{Origin:'https://outside.invalid'}})).status,403);
-  const db=JSON.parse(await fs.readFile(path.join(data,'store.json'),'utf8'));
-  assert(!JSON.stringify(db).includes('test-password-a'));assert(db.users[0].credentials.hash);assert(db.sessions.every(s=>s.hash.length===64));
-  assert.deepEqual(db.runs[0].snapshots,original.runs[0].snapshots);
+  const db=openDatabase(path.join(data,'review.sqlite3'));
+  assert(db.userByName('user_a').credentials.hash);assert(db.db.prepare('SELECT token_hash FROM sessions').all().every(s=>s.token_hash.length===64));
+  assert.deepEqual(db.run('legacy-run').snapshots,original.runs[0].snapshots);db.close();
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(data,'store.json'),'utf8')),original);
   // An invalid local CLI exercises the real job queue without a paid/network model call.
   for(const [provider,filename,content,status] of [['gpt','bad.pdf','not a PDF',400],['gpt','bad.txt','%PDF-1.4',400],['unknown','paper.pdf','%PDF-1.4',400],['deepseek','paper.pdf','%PDF-1.4',400]]){
    const invalid=new FormData();invalid.set('provider',provider);invalid.set('file',new Blob([content]),filename);
    assert.equal((await a('/api/review',{method:'POST',body:invalid})).status,status);
   }
-  const form=new FormData();form.set('provider','gpt');form.set('run_id','legacy-run');
+  const form=new FormData();form.set('provider','gpt');form.set('run_id','legacy-run');form.set('metadata',JSON.stringify(metadata));
   const queued=await a('/api/review',{method:'POST',body:form});assert.equal(queued.status,202);
   const taskId=(await queued.json()).task_id;
   assert.equal((await b('/api/tasks/'+taskId)).status,404);

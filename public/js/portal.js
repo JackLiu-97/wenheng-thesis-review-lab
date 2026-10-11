@@ -10,7 +10,7 @@ async function api(url,options){
  const response=await fetch(url,options);const data=await response.json();
  if(!response.ok)throw Error(data.error||'请求失败');return data;
 }
-const formatDate=value=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
+const formatDate=value=>value?new Date(value).toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'}):'—';
 function setPage(name,updateHash=true){
  if(!['dashboard','review','history','workspace','profile'].includes(name))name='dashboard';
  activePage=name;
@@ -24,23 +24,27 @@ function setPage(name,updateHash=true){
   else requestAnimationFrame(updateVisiblePage);
  }
 }
+function reportAction(run){
+ const pending=['pending','generating'].includes(run.report?.status);
+ return run.report?.status==='ready'?`<a class="btn btn--outline btn--sm" href="/api/runs/${encodeURIComponent(run.id)}/export?format=pdf">下载 PDF</a>`:`<button class="btn btn--outline btn--sm" data-report="${esc(run.id)}" ${pending?'disabled':''}>${pending?'PDF 生成中':run.report?.status==='failed'?'重试 PDF':'生成 PDF'}</button>`;
+}
 function recordRow(run){
- return `<article class="record-row"><div><div class="record-title">${esc(run.filename)}</div><div class="record-meta">${esc(formatDate(run.created_at))} · ${esc(run.model||'历史模型未记录')} · ${run.issue_count||0} 条意见</div></div><div class="record-actions"><button class="btn btn--outline btn--sm" data-open-run="${esc(run.id)}">查看评审 ↗</button><a class="btn btn--outline btn--sm" href="/api/runs/${encodeURIComponent(run.id)}/export">导出报告</a><a class="btn btn--outline btn--sm" href="/api/runs/${encodeURIComponent(run.id)}/export?format=json">JSON</a></div></article>`;
+ return `<article class="record-row"><div><div class="record-title">${esc(run.metadata?.title||run.filename)}</div><div class="record-meta">${esc(formatDate(run.created_at))} · ${esc(run.model||'历史模型未记录')} · ${run.issue_count||0} 条意见</div><div class="record-meta">${esc(run.metadata?summarizeMetadata(run.metadata):'历史参数未记录')} · ${run.total_score==null?'未评分':Number(run.total_score).toFixed(1)+' 分'} ${esc(run.grade||'')}</div></div><div class="record-actions"><button class="btn btn--outline btn--sm" data-open-run="${esc(run.id)}">查看评审 ↗</button>${reportAction(run)}<a class="btn btn--outline btn--sm" href="/api/runs/${encodeURIComponent(run.id)}/export">HTML</a><a class="btn btn--outline btn--sm" href="/api/runs/${encodeURIComponent(run.id)}/export?format=json">JSON</a></div></article>`;
 }
 function renderArchive(){
  const sorted=archive.slice().sort((a,b)=>b.created_at.localeCompare(a.created_at)),query=$('history-search').value.trim().toLowerCase();
  $('recent-list').innerHTML=sorted.slice(0,4).map(recordRow).join('')||'<div class="empty-state">还没有评审记录<br>上传第一篇论文，开始你的评审。</div>';
- $('archive-list').innerHTML=sorted.filter(r=>r.filename.toLowerCase().includes(query)).map(recordRow).join('')||'<div class="empty-state">没有匹配的评审记录</div>';
+ $('archive-list').innerHTML=sorted.filter(r=>[r.filename,r.metadata?.title,r.metadata?.major].some(v=>v?.toLowerCase().includes(query))&&(!$('history-degree').value||r.metadata?.degree_type===$('history-degree').value)&&(!$('history-grade').value||r.grade?.startsWith($('history-grade').value))).map(recordRow).join('')||'<div class="empty-state">没有匹配的评审记录</div>';
  $('stat-total').textContent=archive.length+accountTasks.filter(t=>t.status!=='succeeded').length;
  $('stat-running').textContent=accountTasks.filter(t=>['queued','running'].includes(t.status)).length;
  $('stat-done').textContent=archive.length;
- $('stat-failed').textContent=accountTasks.filter(t=>t.status==='failed').length;
- const labels={queued:'排队中',running:'进行中',succeeded:'已完成',failed:'失败'};
- $('task-list').innerHTML=accountTasks.slice().reverse().map(t=>`<article class="record-row"><div><div class="record-title">${esc(t.filename)}</div><div class="record-meta">${esc(t.model||t.provider)} · ${esc(formatDate(t.created_at))}</div><div class="record-meta">${esc(t.error||t.message)}</div></div><div class="record-actions"><span class="record-status ${t.status}">${labels[t.status]||esc(t.status)}</span>${t.run_id?`<button class="btn btn--outline btn--sm" data-open-run="${esc(t.run_id)}">查看结果</button><a class="btn btn--outline btn--sm" href="/api/runs/${encodeURIComponent(t.run_id)}/export">导出报告</a>`:''}</div></article>`).join('')||'<div class="empty-state">暂无任务。提交后可在这里查看进度，刷新页面后仍可继续查看。</div>';
+ $('stat-failed').textContent=accountTasks.filter(t=>['failed','interrupted'].includes(t.status)).length;
+ const labels={queued:'排队中',running:'进行中',succeeded:'已完成',failed:'失败',interrupted:'已中断'};
+ $('task-list').innerHTML=accountTasks.slice().reverse().map(t=>`<article class="record-row"><div><div class="record-title">${esc(t.filename)}</div><div class="record-meta">${esc(t.model||t.provider)} · ${esc(formatDate(t.created_at))}</div><div class="record-meta">${esc(t.error||t.message)}</div></div><div class="record-actions"><span class="record-status ${t.status}">${labels[t.status]||esc(t.status)}</span>${t.run_id?`<button class="btn btn--outline btn--sm" data-open-run="${esc(t.run_id)}">查看结果</button><a class="btn btn--outline btn--sm" href="/api/runs/${encodeURIComponent(t.run_id)}/export">HTML</a>${reportAction({id:t.run_id,report:t.report})}`:''}${t.can_retry?`<button class="btn btn--outline btn--sm" data-retry="${esc(t.task_id)}">重试失败阶段</button>`:''}</div></article>`).join('')||'<div class="empty-state">暂无任务。提交后可在这里查看进度，刷新页面后仍可继续查看。</div>';
 }
 async function refreshPortal(){
  if(refreshing)return;refreshing=true;
- try{[archive,accountTasks]=await Promise.all([api('/api/runs'),api('/api/tasks')]);renderArchive();}
+ try{[archive,accountTasks]=await Promise.all([api('/api/runs'),api('/api/tasks')]);renderArchive();if(realRun){const latest=archive.find(r=>r.id===realRun.id);if(latest){realRun.report=latest.report;updateReportButton();}}}
  catch(error){toast(error.message);}finally{refreshing=false;}
 }
 window.refreshPortal=refreshPortal;
@@ -56,11 +60,11 @@ async function openRun(id){
 function updateUploadModel(){
  const model=portalModels.find(m=>m.id===$('upload-model').value);
  $('upload-model-status').textContent=!model?.configured?'该模型尚未配置，请配置后再使用':!parserReady?'论文解析服务尚未配置':model.model;
- $('submit-btn').disabled=uploading||!model?.configured||!parserReady;
+ $('submit-btn').disabled=uploading||!model?.configured||!parserReady||!reviewSettings;
 }
 let droppedFiles=null;
-function selectedFiles(){return droppedFiles||Array.from($('paper-file').files);}
-function showFiles(){const files=selectedFiles();$('file-name').textContent=files.map(f=>f.name).join('、');}
+function selectedFiles(){return droppedFiles||Array.from($('paper-file').files||[]);}
+function showFiles(){const files=selectedFiles();$('file-name').textContent=files.map(f=>f.name).join('、');renderFileSettings();}
 $('paper-file').addEventListener('change',()=>{droppedFiles=null;showFiles();});
 $('upload-area').addEventListener('dragover',event=>{event.preventDefault();$('upload-area').classList.add('dragging');});
 $('upload-area').addEventListener('dragleave',()=>$('upload-area').classList.remove('dragging'));
@@ -74,10 +78,12 @@ $('review-form').addEventListener('submit',async event=>{
   $('upload-error').textContent='每次最多提交 10 份 PDF，每份不超过 30 MB';$('upload-error').classList.remove('hidden');return;
  }
  if(promptSaving||hasPromptDrafts()){toast('请先保存评审重点草稿');setPage('workspace');tab('prompts');return;}
+ if(revisionPaperId&&files.length!==1){toast('修订稿一次只能选择一份文件');return;}
+ let metadata;try{metadata=files.map(file=>validateClientMetadata(fileMetadata(file)));}catch(error){$('upload-error').textContent=error.message;$('upload-error').classList.remove('hidden');return;}
  uploading=true;updateUploadModel();$('upload-model').disabled=true;let submitted=0;
  try{
-  for(const file of files){const form=new FormData();form.set('file',file);form.set('provider',$('upload-model').value);await api('/api/review',{method:'POST',body:form});submitted++;}
-  $('review-form').reset();droppedFiles=null;$('paper-file').required=true;showFiles();toast(`已提交 ${submitted} 份论文，正在依次处理`);
+  for(const [index,file] of files.entries()){const form=new FormData();form.set('file',file);form.set('provider',$('upload-model').value);form.set('metadata',JSON.stringify(metadata[index]));if(revisionPaperId)form.set('paper_id',revisionPaperId);await api('/api/review',{method:'POST',body:form});submitted++;}
+  $('review-form').reset();perFileSettings.clear();revisionPaperId=null;$('revision-notice').classList.add('hidden');droppedFiles=null;$('paper-file').required=true;showFiles();toast(`已提交 ${submitted} 份论文，正在依次处理`);
  }catch(error){$('upload-error').textContent=`${submitted?`已提交 ${submitted} 份；剩余文件未提交。`:''}${error.message}`;$('upload-error').classList.remove('hidden');droppedFiles=files.slice(submitted);$('paper-file').required=false;showFiles();}
  finally{uploading=false;$('upload-model').disabled=false;updateUploadModel();await refreshPortal();}
 });
@@ -88,7 +94,7 @@ document.addEventListener('click',event=>{
 $('history-search').addEventListener('input',renderArchive);
 $('refresh-history-btn').addEventListener('click',refreshPortal);
 $('refresh-tasks').addEventListener('click',refreshPortal);
-$('export').addEventListener('click',()=>{if(realRun)window.location.href='/api/runs/'+encodeURIComponent(realRun.id)+'/export';else toast('请先选择一条评审记录');});
+$('export').addEventListener('click',()=>{if(realRun)downloadReport(realRun.id);else toast('请先选择一条评审记录');});
 $('logout-btn').addEventListener('click',async()=>{try{await api('/api/auth/logout',{method:'POST'});window.location.replace('/login.html');}catch(error){toast(error.message);}});
 $('password-form').addEventListener('submit',async event=>{
  event.preventDefault();const button=event.target.querySelector('button');
@@ -106,8 +112,8 @@ async function bootPortal(){
   $('current-username').textContent=account.username;$('user-avatar').textContent=account.username.slice(0,1);
   $('greeting-text').textContent='欢迎回来，'+account.username;$('current-date').textContent=new Date().toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
   $('profile-username').textContent=account.username;$('profile-phone').textContent=account.phone||'未填写';$('profile-created').textContent=formatDate(account.created_at);
-  const config=await api('/api/config/status');portalModels=config.models;parserReady=config.mineru_configured;availableModels=portalModels;updateModelStatus();updateUploadModel();
-  await refreshPortal();
+  const config=await api('/api/config/status');portalModels=config.models;parserReady=config.mineru_configured;availableModels=portalModels;renderModelSelectors(portalModels);updateModelStatus();updateUploadModel();
+  await initReviewSettings();updateUploadModel();await refreshPortal();
   const [page,id]=location.hash.slice(1).split('/');
   if(page==='workspace'&&id)await openRun(id);
   else{if(archive.length){const latest=archive.slice().sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];const run=await api('/api/runs/'+latest.id);normalizeRun(run);renderAll();}setPage(page||'dashboard');}
