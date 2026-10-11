@@ -29,6 +29,19 @@ test('failed synthesis resumes without repeating parse or detailed model call',a
   fail=false;engine.retry(f.task.id,f.user.id);await engine.enqueue(f.task.id);assert.equal(f.repo.task(f.task.id).status,'succeeded');assert.equal(parses,1);assert.equal(details,1);assert.equal(syntheses,2);
  }finally{await f.cleanup();}
 });
+test('retry after an output budget change uses current config and keeps completed stages',async()=>{
+ const f=await fixtureRepo();let parses=0,details=0,budgets=[];try{
+  let output=f.request.model_config.output_tokens;
+  const engine=createReviewEngine(f.repo,f.dir,{request:async()=>{}},{currentConfig:()=>({...f.request.model_config,output_tokens:output}),parse:async()=>{parses++;return {blocks,pageSizes:[]};},model:async(_p,_d,config,schema)=>{
+   if(schema.properties.dimensions){details++;return detailedFixture();}
+   budgets.push(config.output_tokens);if(config.output_tokens<64000)throw Error('truncated');return synthesisFixture(validateDetailed(detailedFixture(),blocks,f.request,f.task.id));
+  }});
+  await engine.enqueue(f.task.id);assert.equal(f.repo.task(f.task.id).status,'failed');
+  output=64000;const id=engine.retry(f.task.id,f.user.id);assert.notEqual(id,f.task.id);
+  assert.equal(f.repo.task(id).request.model_config.output_tokens,64000);assert.equal(f.repo.task(f.task.id).request.model_config.output_tokens,f.request.model_config.output_tokens);
+  await engine.enqueue(id);assert.equal(f.repo.task(id).status,'succeeded');assert.equal(parses,1);assert.equal(details,1);assert.deepEqual(budgets,[f.request.model_config.output_tokens,64000]);
+ }finally{await f.cleanup();}
+});
 test('429 retries twice, malformed output corrects once, authentication failures do not loop',async()=>{
  const f=await fixtureRepo();let calls=0;try{
   const result=validateDetailed(detailedFixture(),blocks,f.request,f.task.id);

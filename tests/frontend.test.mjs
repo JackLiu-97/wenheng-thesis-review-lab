@@ -11,8 +11,9 @@ import {reviewOptions} from '../src/standards.mjs';
 import {metadata} from './helpers.mjs';
 const settings=fs.readFileSync(new URL('../public/js/review-settings.js',import.meta.url),'utf8');
 const portal=fs.readFileSync(new URL('../public/js/portal.js',import.meta.url),'utf8');
+const controls=fs.readFileSync(new URL('../public/js/form-controls.js',import.meta.url),'utf8');
 const tick=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));};
-function setup({empty=false,legacy=false}={}){
+function setup({empty=false,legacy=false,tasks=[]}={}){
  const {document,Event,HTMLElement,HTMLInputElement,HTMLSelectElement}=parseHTML(html);
  // Geometry and form controls are browser facilities, mocked for DOM logic tests.
  HTMLElement.prototype.getBoundingClientRect=()=>({top:0,bottom:800,width:600,height:800});
@@ -34,7 +35,8 @@ function setup({empty=false,legacy=false}={}){
    else if(url==='/api/review-preview')data={prompt:'平台默认评审标准预览',metadata:JSON.parse(options.body).metadata};
    else if(url==='/api/config/status')data={mineru_configured:true,models:[{id:'gpt',model:'test-gpt',configured:true},{id:'deepseek',configured:false}]};
    else if(url==='/api/runs')data=empty?[]:[{...run,issue_count:6}];
-   else if(url==='/api/tasks')data=[];
+   else if(url==='/api/tasks')data=tasks;
+   else if(/^\/api\/tasks\/[^/]+\/log$/.test(url))data=[{created_at:'2026-01-01T01:00:00Z',stage:'reviewing',level:'error',message:'日志：'+url.split('/')[3]}];
    else if(url==='/api/runs/run-one')data=run;
    else if(url==='/api/prompts')data=store.prompts;
    else if(url.startsWith('/api/prompts/'))data=appendFocusVersion(store,Number(url.split('/').at(-1)),JSON.parse(options.body));
@@ -46,11 +48,17 @@ function setup({empty=false,legacy=false}={}){
   }
  });
  context.window=context;
- vm.runInContext(app,context);vm.runInContext(settings,context);vm.runInContext(portal,context);
+ vm.runInContext(app,context);vm.runInContext(controls,context);vm.runInContext(settings,context);vm.runInContext(portal,context);
  const $=id=>document.getElementById(id);
  const click=node=>node.dispatchEvent(new Event('click',{bubbles:true}));
  const event=(node,type)=>node.dispatchEvent(new Event(type,{bubbles:true,cancelable:true}));
- return {context,document,$,click,event,requests,store,run};
+ // Sets the custom metadata controls the way a user would end up with them.
+ const fill=(prefix,values)=>{for(const [key,value] of Object.entries(values)){
+  const radios=document.querySelectorAll(`input[name="${prefix}-${key}"]`);
+  if(radios.length){radios.forEach(r=>{r.checked=r.value===value;});event([...radios].find(r=>r.value===value),'change');}
+  else if($(prefix+'-'+key)){$(prefix+'-'+key).value=value;event($(prefix+'-'+key),'change');}
+ }};
+ return {context,document,$,click,event,fill,requests,store,run};
 }
 
 test('actual HTML/scripts: dashboard, navigation, filters, details and evidence links',async()=>{
@@ -75,7 +83,7 @@ test('actual editor: save custom focus, rerun selected model, preserve latest sn
  h.click(h.$('rerun-top'));await tick();assert.equal(h.requests.filter(r=>r.url==='/api/review').length,0);
  h.click(h.$('save-prompt'));await tick();assert.equal(h.store.prompts[0].at(-1).text,'检查变量控制与统计检验');
  h.click(h.$('rerun-top'));await tick();
- const request=h.requests.find(r=>r.url==='/api/review');assert(request);assert.equal(request.options.body.get('provider'),'gpt');assert.equal(request.options.body.get('run_id'),'run-one');
+ const request=h.requests.find(r=>r.url==='/api/review');assert(request);assert.equal(request.options.body.get('provider'),'gpt');assert.equal(request.options.body.get('run_id'),'run-one');assert.equal(request.options.body.get('metadata'),null);
  assert.equal(vm.runInContext('realRun.snapshots[0].version',h.context),2);
  assert(h.$('run-overlay').classList.contains('hidden'));
  h.$('review-model').value='deepseek';h.event(h.$('review-model'),'change');assert.equal(h.$('rerun-top').disabled,true);
@@ -86,7 +94,7 @@ test('actual upload form: PDF submission, invalid file rejection and empty-accou
  h.click(h.document.querySelector('[data-page="workspace"]'));assert(!h.$('workspace-empty').classList.contains('hidden'));
  h.click(h.document.querySelector('[data-page="review"]'));
  h.$('paper-file').files=[new File(['%PDF-1.4'],'paper.pdf',{type:'application/pdf'})];h.event(h.$('paper-file'),'change');
- for(const [key,value] of Object.entries(metadata))h.$('upload-'+key).value=value;
+ h.fill('upload',{degree_level:metadata.degree_level,degree_category:metadata.degree_category,discipline_category:metadata.discipline_category,major:metadata.major,completion_month:metadata.completion_month});
  h.event(h.$('review-form'),'submit');await tick();
  const request=h.requests.find(r=>r.url==='/api/review');assert.equal(request.options.body.get('file').name,'paper.pdf');assert.equal(request.options.body.get('provider'),'gpt');
  h.$('paper-file').files=[new File(['text'],'not-pdf.txt')];h.event(h.$('paper-file'),'change');h.event(h.$('review-form'),'submit');await tick();
@@ -102,12 +110,12 @@ test('an opinion without located evidence does not claim a fabricated page or ev
 
 test('batch metadata overrides affect only their own paper and preview uses the final parameters',async()=>{
  const h=setup({empty:true});await tick();
- for(const [key,value] of Object.entries(metadata))h.$('upload-'+key).value=value;
+ h.fill('upload',{degree_level:metadata.degree_level,degree_category:metadata.degree_category,discipline_category:metadata.discipline_category,major:metadata.major,completion_month:metadata.completion_month});
  h.$('paper-file').files=[new File(['%PDF-1.4'],'first.pdf'),new File(['%PDF-1.4'],'second.pdf')];h.event(h.$('paper-file'),'change');
- h.$('file-1-degree_type').value='academic_doctor';h.event(h.$('file-1-degree_type'),'change');h.$('file-1-major').value='艺术理论';h.event(h.$('file-1-major'),'input');
- h.click(h.document.querySelector('[data-file-preview="1"]'));await tick();const preview=h.requests.find(r=>r.url==='/api/review-preview');assert.equal(JSON.parse(preview.options.body).metadata.degree_type,'academic_doctor');
+ h.fill('file-1',{degree_level:'doctor',major:'软件工程'});
+ h.click(h.document.querySelector('[data-file-preview="1"]'));await tick();const preview=h.requests.find(r=>r.url==='/api/review-preview');assert.equal(JSON.parse(preview.options.body).metadata.degree_level,'doctor');
  h.event(h.$('review-form'),'submit');await tick();const submissions=h.requests.filter(r=>r.url==='/api/review');assert.equal(submissions.length,2);
- const a=JSON.parse(submissions[0].options.body.get('metadata')),b=JSON.parse(submissions[1].options.body.get('metadata'));assert.equal(a.degree_type,'academic_master');assert.equal(a.major,metadata.major);assert.equal(b.degree_type,'academic_doctor');assert.equal(b.major,'艺术理论');assert.equal(b.completion_month,metadata.completion_month);
+ const a=JSON.parse(submissions[0].options.body.get('metadata')),b=JSON.parse(submissions[1].options.body.get('metadata'));assert.equal(a.degree_level,'master');assert.equal(a.degree_category,'academic');assert.equal(a.title,'first');assert.equal(a.major,metadata.major);assert.equal(b.degree_level,'doctor');assert.equal(b.degree_category,'academic');assert.equal(b.major,'软件工程');assert.equal(b.discipline_category,'08');assert.equal(b.completion_month,metadata.completion_month);
 });
 
 test('legacy rerun requires metadata and history filters distinguish degree and grade',async()=>{
@@ -144,4 +152,32 @@ test('login/register forms submit credentials and show a useful error for mismat
   document.querySelector('form').dispatchEvent(new Event('submit',{cancelable:true}));await tick();
   assert.equal(requests[0].url,register?'/api/auth/register':'/api/auth/login');assert.equal(context.destination,'/#dashboard');
  }
+});
+
+test('task list: newest first, superseded failures hidden, status filter and expandable live log',async()=>{
+ const base={provider:'deepseek',model:'deepseek-flash',progress:0,can_retry:false,report:null,metadata:null};
+ const tasks=[
+  {...base,task_id:'old-failed',filename:'a.pdf',status:'failed',stage:'reviewing',error:'旧错误',created_at:'2026-01-01T00:00:00Z',superseded:true},
+  {...base,task_id:'done',filename:'b.pdf',status:'succeeded',stage:'completed',created_at:'2026-01-02T00:00:00Z',run_id:'run-one',report:{status:'ready'}},
+  {...base,task_id:'failed',filename:'c.pdf',status:'failed',stage:'reviewing',error:'DeepSeek 输出不完整',can_retry:true,created_at:'2026-01-03T00:00:00Z'}];
+ const h=setup({tasks});await tick();
+ const ids=()=>[...h.$('task-list').querySelectorAll('[data-task-id]')].map(n=>n.dataset.taskId);
+ assert.deepEqual(ids(),['failed','done']);
+ assert(h.$('task-filters').textContent.includes('失败1'));
+ h.click(h.document.querySelector('[data-task-filter="failed"]'));assert.deepEqual(ids(),['failed']);
+ h.click(h.document.querySelector('[data-task-filter="all"]'));
+ assert(!h.$('task-list').querySelector('[data-task-log]'));
+ h.click(h.document.querySelector('[data-task-toggle="failed"] .record-title'));await tick();
+ assert.equal(h.document.querySelector('[data-task-log="failed"]').textContent.includes('日志：failed'),true);
+ assert(h.document.querySelector('[data-dismiss="failed"]'));
+ h.click(h.document.querySelector('[data-task-toggle="failed"] .record-title'));assert(!h.$('task-list').querySelector('[data-task-log]'));
+});
+
+test('workspace overview no longer shows contribution/criteria details or rerun parameter form',async()=>{
+ const h=setup();await tick();h.click(h.document.querySelector('[data-open-run]'));await tick();
+ assert(!h.$('run-overview').textContent.includes('主要贡献与评价边界'));assert(!h.$('run-overview').textContent.includes('评分依据与优先修改清单'));
+ assert.equal(h.document.querySelector('.rerun-settings'),null);assert.equal(h.$('rerun-metadata'),null);
+ h.click(h.document.querySelector('[data-tab="prompts"]'));await tick();
+ assert(h.document.querySelector('[data-tab="prompts"]').textContent.includes('提示词配置'));
+ assert(h.$('prompt-criteria').textContent.includes('问题与研究范围'));
 });

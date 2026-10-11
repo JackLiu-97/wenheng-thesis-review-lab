@@ -39,18 +39,133 @@ function recordRow(run){
 function archiveRow(run){
  return `<article class="record-row archive-row is-clickable" data-row-open="${esc(run.id)}"><div class="record-main"><button class="record-title link-title" data-open-run="${esc(run.id)}" title="${esc(run.metadata?.title||run.filename)}">${esc(run.metadata?.title||run.filename)}</button><div class="record-meta"><span>${esc(run.metadata?summarizeMetadata(run.metadata):'历史参数未记录')}</span>${run.metadata?.title&&run.metadata.title!==run.filename?`<span class="muted">${esc(run.filename)}</span>`:''}</div></div><div class="archive-col archive-col--model">${esc(run.model||'未记录')}<small>${run.issue_count||0} 条意见</small></div><div class="archive-col archive-col--score">${scoreCell(run)}${gradeBadge(run.grade)}</div><div class="archive-col archive-col--date">${esc(formatDate(run.created_at))}</div><div class="record-actions"><button class="btn btn--primary btn--sm" data-open-run="${esc(run.id)}">查看评审</button><span class="export-links">${reportAction(run,true)}<a class="link-btn" href="/api/runs/${encodeURIComponent(run.id)}/export">HTML</a><a class="link-btn" href="/api/runs/${encodeURIComponent(run.id)}/export?format=json">JSON</a></span></div></article>`;
 }
-const taskStages=[['queued','排队'],['parsing','解析'],['reviewing','维度评审'],['synthesizing','综合评议'],['completed','完成']];
+// ---------------------------------------------------------------------------
+// Task progress: stage stepper, live percentage, elapsed time and ETA.
+// ---------------------------------------------------------------------------
+const taskStages=[['queued','排队'],['parsing','解析论文'],['reviewing','六维度评审'],['synthesizing','综合评议'],['report','生成报告']];
 const taskLabels={queued:'排队中',running:'进行中',succeeded:'已完成',failed:'失败',interrupted:'已中断'};
 const taskTone={queued:'none',running:'info',succeeded:'success',failed:'danger',interrupted:'warning'};
-function taskSteps(t){
- const at=Math.max(0,taskStages.findIndex(([key])=>key===(t.status==='succeeded'?'completed':t.stage)));
- const bad=['failed','interrupted'].includes(t.status);
- return `<ol class="task-steps">${taskStages.map(([,label],i)=>`<li class="${i<at||t.status==='succeeded'?'done':i===at?(bad?'failed':'current'):''}">${label}</li>`).join('')}</ol>`;
+const isActiveTask=t=>['queued','running'].includes(t.status);
+function formatDuration(seconds){
+ if(seconds==null||!Number.isFinite(seconds))return '';seconds=Math.max(0,Math.round(seconds));
+ const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;
+ return h?`${h} 小时 ${m} 分`:m?`${m} 分 ${String(s).padStart(2,'0')} 秒`:`${s} 秒`;
+}
+function formatEta(seconds){if(seconds==null)return '';if(seconds<30)return '即将完成';if(seconds<90)return '约 1 分钟';if(seconds<3600)return `约 ${Math.round(seconds/60)} 分钟`;return `约 ${(seconds/3600).toFixed(1)} 小时`;}
+// Index of the stage the task is in; the report step follows a finished review.
+function stageIndex(t){if(t.status==='succeeded')return 4;const i=taskStages.findIndex(([key])=>key===t.stage);return i<0?(t.status==='queued'?0:1):i;}
+function stepState(t,i){
+ const at=stageIndex(t),bad=['failed','interrupted'].includes(t.status);
+ if(t.status==='succeeded'){if(i<4)return 'done';const r=t.report?.status;return r==='ready'?'done':r==='failed'?'failed':'current';}
+ if(i<at)return 'done';if(i===at)return bad?'failed':'current';return '';
+}
+function taskStepper(t){
+ return `<ol class="stepper">${taskStages.map(([,label],i)=>{const state=stepState(t,i);return `<li class="stepper__step${state?' is-'+state:''}"><span class="stepper__dot">${state==='done'?icon('check'):state==='failed'?icon('x'):state==='current'?'<i></i>':i+1}</span><span class="stepper__label">${label}</span></li>`;}).join('')}</ol>`;
+}
+function liveMeta(t){
+ const parts=[];
+ if(t.status==='queued')parts.push(t.queue_position?`前面还有 ${t.queue_position} 个任务`:'即将开始');
+ if(t.status==='running'&&t.elapsed_seconds!=null)parts.push(`已用时 <b data-live-elapsed="${t.elapsed_seconds}">${formatDuration(t.elapsed_seconds)}</b>`);
+ if(t.status==='running'&&t.eta_seconds!=null)parts.push(`预计剩余 <b data-live-eta="${t.eta_seconds}">${formatEta(t.eta_seconds)}</b>`);
+ if(t.attempt_no)parts.push(`第 ${t.attempt_no} 次尝试`);
+ return parts.join('<span class="dot-sep">·</span>');
+}
+function taskProgressBlock(t,compact=false){
+ const progress=Math.max(0,Math.min(100,Math.round(Number(t.progress)||0))),active=isActiveTask(t);
+ const detail=t.error||t.message;
+ return `<div class="task-live${active?' is-active':''}" data-task-live="${esc(t.task_id)}">
+  ${['failed','interrupted'].includes(t.status)?'':`<div class="task-live__bar"><div class="progress-track progress-track--live${t.status==='running'?' is-running':''}"><i data-progress="${progress}" style="width:${Math.max(progress,2)}%"></i></div><b class="task-live__pct">${progress}%</b></div>`}
+  ${compact?'':taskStepper(t)}
+  ${detail?`<div class="task-live__detail${t.error?' is-error':''}">${t.status==='running'?'<span class="loader loader--sm"></span>':''}<span>${esc(detail)}</span></div>`:''}
+  ${active?`<div class="task-live__meta">${liveMeta(t)}</div>`:''}
+ </div>`;
 }
 function taskRow(t,compact=false){
- const progress=Math.max(0,Math.min(100,Number(t.progress)||0));
- return `<article class="record-row task-row task-row--${esc(t.status)}"><div class="record-main"><div class="record-title" title="${esc(t.filename)}">${esc(t.filename)}</div><div class="record-meta"><span>${esc(t.model||t.provider||'')}</span><span title="${esc(formatDate(t.created_at))}">${esc(relativeTime(t.created_at))}</span></div>${['queued','running'].includes(t.status)?`<div class="task-progress"><div class="progress-track"><i style="width:${Math.max(progress,3)}%"></i></div><span>${progress}%</span></div>`:''}${compact||t.status==='succeeded'?'':taskSteps(t)}${t.error||t.message?`<div class="task-message${t.error?' is-error':''}">${esc(t.error||t.message)}</div>`:''}</div><div class="record-actions"><span class="status-pill status-pill--${taskTone[t.status]||'none'}">${taskLabels[t.status]||esc(t.status)}</span>${t.run_id?`<button class="btn btn--outline btn--sm" data-open-run="${esc(t.run_id)}">查看结果</button>${compact?'':`<span class="export-links">${reportAction({id:t.run_id,report:t.report},true)}<a class="link-btn" href="/api/runs/${encodeURIComponent(t.run_id)}/export">HTML</a></span>`}`:''}${t.can_retry?`<button class="btn btn--outline btn--sm" data-retry="${esc(t.task_id)}">${icon('refresh')}重试失败阶段</button>`:''}</div></article>`;
+ const showProgress=isActiveTask(t)||(!compact&&t.status!=='succeeded')||(t.status==='succeeded'&&['pending','generating'].includes(t.report?.status));
+ const elapsed=t.status==='succeeded'&&t.elapsed_seconds?`<span>耗时 ${formatDuration(t.elapsed_seconds)}</span>`:'';
+ return `<article class="record-row task-row task-row--${esc(t.status)}" data-task-id="${esc(t.task_id)}"><div class="record-main"><div class="record-title" title="${esc(t.filename)}">${esc(t.filename)}</div><div class="record-meta"><span>${esc(t.model||t.provider||'')}</span><span title="${esc(formatDate(t.created_at))}">${esc(relativeTime(t.created_at))}</span>${elapsed}</div>${showProgress?taskProgressBlock(t,compact):''}</div><div class="record-actions"><span class="status-pill status-pill--${taskTone[t.status]||'none'}">${taskLabels[t.status]||esc(t.status)}</span>${t.run_id?`<button class="btn btn--outline btn--sm" data-open-run="${esc(t.run_id)}">查看结果</button>${compact?'':`<span class="export-links">${reportAction({id:t.run_id,report:t.report},true)}<a class="link-btn" href="/api/runs/${encodeURIComponent(t.run_id)}/export">HTML</a></span>`}`:''}${t.can_retry?`<button class="btn btn--outline btn--sm" data-retry="${esc(t.task_id)}">${icon('refresh')}重试失败阶段</button>`:''}</div></article>`;
 }
+// Re-rendering replaces the bars; start each one at its previous width so the change animates.
+const lastProgress=new Map();
+function animateBars(root){
+ root.querySelectorAll('[data-task-live]').forEach(block=>{const bar=block.querySelector('[data-progress]');if(!bar)return;const id=block.dataset.taskLive,target=Math.max(Number(bar.dataset.progress),2),previous=lastProgress.get(id);
+  if(previous!=null&&previous!==target&&typeof requestAnimationFrame==='function'){bar.style.transition='none';bar.style.width=previous+'%';requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.transition='';bar.style.width=target+'%';}));}
+  lastProgress.set(id,target);});
+}
+// Tick elapsed time and ETA every second between polls.
+let liveBase=Date.now();
+setInterval(()=>{const delta=(Date.now()-liveBase)/1000;
+ document.querySelectorAll('[data-live-elapsed]').forEach(el=>{el.textContent=formatDuration(Number(el.dataset.liveElapsed)+delta);});
+ document.querySelectorAll('[data-live-eta]').forEach(el=>{el.textContent=formatEta(Math.max(0,Number(el.dataset.liveEta)-delta));});
+},1000);
+// Full task list (new-review page): newest first, filterable by status, one row per task.
+// Clicking a row expands it to show the stage stepper and the live log.
+let taskFilter='all';const expandedTasks=new Set(),taskLogs=new Map();
+const taskFilters=[['all','全部',()=>true],['active','进行中',isActiveTask],['succeeded','已完成',t=>t.status==='succeeded'],['failed','失败',t=>['failed','interrupted'].includes(t.status)]];
+// A failed task that already has a linked retry no longer needs attention.
+const visibleTasks=()=>accountTasks.filter(t=>!t.superseded).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
+const logStage={queued:'排队',parsing:'解析',reviewing:'评审',synthesizing:'综合',completed:'完成'};
+function logTime(value){const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toLocaleTimeString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'});}
+function taskLogHtml(id){
+ const log=taskLogs.get(id);if(!log)return '<div class="task-log__empty"><span class="loader loader--sm"></span>正在载入日志…</div>';
+ if(!log.length)return '<div class="task-log__empty">暂无日志</div>';
+ return log.map(e=>`<div class="task-log__line is-${esc(e.level)}"><time>${esc(logTime(e.created_at))}</time><span class="task-log__stage">${esc(logStage[e.stage]||e.stage||'')}</span><span class="task-log__msg">${esc(e.message)}</span></div>`).join('');
+}
+async function loadTaskLog(id){
+ try{taskLogs.set(id,await api('/api/tasks/'+encodeURIComponent(id)+'/log'));}catch(error){if(!taskLogs.has(id))taskLogs.set(id,[{created_at:new Date().toISOString(),stage:'',level:'error',message:'日志载入失败：'+error.message}]);}
+ const box=[...document.querySelectorAll('[data-task-log]')].find(b=>b.dataset.taskLog===id);if(!box)return;
+ const follow=box.scrollTop+box.clientHeight>=box.scrollHeight-24;box.innerHTML=taskLogHtml(id);if(follow)box.scrollTop=box.scrollHeight;
+}
+// Logs of expanded tasks that are still moving are refreshed with every poll.
+function refreshOpenLogs(){for(const id of expandedTasks){const t=accountTasks.find(x=>x.task_id===id);if(t&&(isActiveTask(t)||!taskLogs.has(id)))loadTaskLog(id);}}
+function taskActions(t){
+ return `${t.run_id?`<button class="btn btn--outline btn--sm" data-open-run="${esc(t.run_id)}">查看结果</button>`:''}${t.can_retry?`<button class="btn btn--outline btn--sm" data-retry="${esc(t.task_id)}">${icon('refresh')}重试失败阶段</button>`:''}`;
+}
+function taskItem(t){
+ const open=expandedTasks.has(t.task_id),active=isActiveTask(t),progress=Math.max(0,Math.min(100,Math.round(Number(t.progress)||0)));
+ const elapsed=t.status==='succeeded'&&t.elapsed_seconds?`<span>耗时 ${formatDuration(t.elapsed_seconds)}</span>`:'';
+ const failed=['failed','interrupted'].includes(t.status);
+ return `<article class="task-item task-row--${esc(t.status)}${open?' is-open':''}" data-task-id="${esc(t.task_id)}">
+  <div class="task-item__head" data-task-toggle="${esc(t.task_id)}" role="button" tabindex="0" aria-expanded="${open}">
+   <span class="task-item__chevron">${icon('chevron')}</span>
+   <div class="record-main"><div class="record-title" title="${esc(t.filename)}">${esc(t.filename)}</div><div class="record-meta"><span>${esc(t.model||t.provider||'')}</span><span title="${esc(formatDate(t.created_at))}">${esc(relativeTime(t.created_at))}</span>${elapsed}${t.retry_of_task_id?'<span>重试任务</span>':''}</div>
+    ${active&&!open?`<div class="task-live" data-task-live="${esc(t.task_id)}"><div class="task-live__bar"><div class="progress-track progress-track--live${t.status==='running'?' is-running':''}"><i data-progress="${progress}" style="width:${Math.max(progress,2)}%"></i></div><b class="task-live__pct">${progress}%</b></div></div>`:''}
+    ${failed&&!open&&t.error?`<div class="task-item__error">${esc(t.error)}</div>`:''}
+   </div>
+   <div class="record-actions"><span class="status-pill status-pill--${taskTone[t.status]||'none'}">${taskLabels[t.status]||esc(t.status)}</span>${taskActions(t)}</div>
+  </div>
+  ${open?`<div class="task-item__body">
+   ${taskProgressBlock(t)}
+   <div class="task-log__head"><strong>运行日志</strong>${active?'<span class="live-dot">实时</span>':''}</div>
+   <div class="task-log" data-task-log="${esc(t.task_id)}">${taskLogHtml(t.task_id)}</div>
+   <div class="task-item__foot">${t.run_id?`<span class="export-links">${reportAction({id:t.run_id,report:t.report},true)}<a class="link-btn" href="/api/runs/${encodeURIComponent(t.run_id)}/export">HTML</a></span>`:''}${failed?`<button class="btn btn--ghost btn--sm" data-dismiss="${esc(t.task_id)}">${icon('x')}从列表移除</button>`:''}</div>
+  </div>`:''}
+ </article>`;
+}
+function renderTaskLists(){
+ const tasks=visibleTasks(),rank={running:0,queued:1,failed:2,interrupted:3};
+ const previous=new Map([...lastProgress]);liveBase=Date.now();
+ if($('task-filters'))$('task-filters').innerHTML=taskFilters.map(([key,label,test])=>{const n=tasks.filter(test).length;return `<button type="button" role="tab" class="${taskFilter===key?'active':''}" aria-selected="${taskFilter===key}" data-task-filter="${key}">${label}<em>${n}</em></button>`;}).join('');
+ const shown=tasks.filter(taskFilters.find(f=>f[0]===taskFilter)[2]);
+ // Keep each open log's scroll position across re-renders; follow the tail if it was at the bottom.
+ const scroll=new Map([...document.querySelectorAll('[data-task-log]')].map(box=>[box.dataset.taskLog,box.scrollTop+box.clientHeight>=box.scrollHeight-24?Infinity:box.scrollTop]));
+ $('task-list').innerHTML=shown.map(taskItem).join('')||`<div class="empty-state empty-state--inline">${tasks.length?'该状态下没有任务':'暂无任务。提交后可在这里实时查看评审进度，刷新页面后仍可继续查看。'}</div>`;
+ $('task-list').querySelectorAll('[data-task-log]').forEach(box=>{const top=scroll.get(box.dataset.taskLog);box.scrollTop=top===undefined||top===Infinity?box.scrollHeight:top;});
+ animateBars($('task-list'));
+ if($('dash-tasks')){for(const [k,v] of previous)lastProgress.set(k,v);const active=tasks.filter(t=>t.status!=='succeeded').sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9)).slice(0,4);$('dash-tasks').innerHTML=active.map(t=>taskRow(t,true)).join('')||'<div class="empty-state empty-state--inline">当前没有排队或进行中的任务</div>';animateBars($('dash-tasks'));}
+ const active=accountTasks.filter(isActiveTask).length;if($('task-active-count')){$('task-active-count').textContent=active?`${active} 个进行中`:'';$('task-active-count').classList.toggle('hidden',!active);}
+}
+function toggleTask(id){if(expandedTasks.has(id))expandedTasks.delete(id);else{expandedTasks.add(id);loadTaskLog(id);}renderTaskLists();}
+document.addEventListener('click',event=>{
+ const filter=event.target.closest('[data-task-filter]');if(filter){taskFilter=filter.dataset.taskFilter;renderTaskLists();return;}
+ const head=event.target.closest('[data-task-toggle]');if(head&&!event.target.closest('a,button'))toggleTask(head.dataset.taskToggle);
+});
+document.addEventListener('keydown',event=>{const head=event.target.closest?.('[data-task-toggle]');if(head&&(event.key==='Enter'||event.key===' ')&&event.target===head){event.preventDefault();toggleTask(head.dataset.taskToggle);}});
+document.addEventListener('click',async event=>{
+ const dismiss=event.target.closest('[data-dismiss]');if(!dismiss)return;dismiss.disabled=true;
+ try{await api('/api/tasks/'+encodeURIComponent(dismiss.dataset.dismiss)+'/dismiss',{method:'POST'});expandedTasks.delete(dismiss.dataset.dismiss);await refreshPortal();toast('已从任务列表移除');}
+ catch(error){toast(error.message);dismiss.disabled=false;}
+});
 function renderGradeOverview(){
  const scored=archive.filter(r=>r.total_score!=null);
  if(!scored.length){$('dash-grades').innerHTML='<div class="empty-state empty-state--inline">完成评分的记录会在这里汇总等级分布</div>';return;}
@@ -66,21 +181,37 @@ function renderArchive(){
  $('recent-list').innerHTML=sorted.slice(0,5).map(recordRow).join('')||`<div class="empty-state">${icon('file')}<strong>还没有评审记录</strong><span>上传第一篇论文，开始你的评审。</span><button class="btn btn--primary btn--sm" data-page="review">新建评审</button></div>`;
  const rows=ordered.filter(r=>[r.filename,r.metadata?.title,r.metadata?.major].some(v=>v?.toLowerCase().includes(query))&&(!$('history-degree').value||r.metadata?.degree_type===$('history-degree').value)&&(!$('history-grade').value||r.grade?.startsWith($('history-grade').value)));
  $('archive-list').innerHTML=rows.length?`<div class="archive-head"><span>论文</span><span>模型</span><span>评分</span><span>评审时间</span><span>操作</span></div>${rows.map(archiveRow).join('')}<div class="archive-foot">共 ${rows.length} 条${rows.length!==archive.length?`（全部 ${archive.length} 条）`:''}</div>`:archive.length?'<div class="empty-state">没有匹配的评审记录，试试调整搜索词或筛选条件</div>':`<div class="empty-state">${icon('history')}<strong>还没有评审记录</strong><span>提交的论文完成评审后会出现在这里。</span><button class="btn btn--primary btn--sm" data-page="review">新建评审</button></div>`;
- $('stat-total').textContent=archive.length+accountTasks.filter(t=>t.status!=='succeeded').length;
+ $('stat-total').textContent=archive.length+accountTasks.filter(t=>!t.superseded&&t.status!=='succeeded').length;
  $('stat-running').textContent=accountTasks.filter(t=>['queued','running'].includes(t.status)).length;
  $('stat-done').textContent=archive.length;
- $('stat-failed').textContent=accountTasks.filter(t=>['failed','interrupted'].includes(t.status)).length;
+ $('stat-failed').textContent=accountTasks.filter(t=>!t.superseded&&['failed','interrupted'].includes(t.status)).length;
  const tasks=accountTasks.slice().reverse();
- $('task-list').innerHTML=tasks.map(t=>taskRow(t)).join('')||'<div class="empty-state empty-state--inline">暂无任务。提交后可在这里查看进度，刷新页面后仍可继续查看。</div>';
- if($('dash-tasks')){const rank={running:0,queued:1,failed:2,interrupted:3},active=tasks.filter(t=>t.status!=='succeeded').sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9)).slice(0,4);$('dash-tasks').innerHTML=active.map(t=>taskRow(t,true)).join('')||'<div class="empty-state empty-state--inline">当前没有排队或进行中的任务</div>';}
+ renderTaskLists();
  if($('dash-grades'))renderGradeOverview();
 }
 async function refreshPortal(){
  if(refreshing)return;refreshing=true;
- try{[archive,accountTasks]=await Promise.all([api('/api/runs'),api('/api/tasks')]);renderArchive();if(realRun){const latest=archive.find(r=>r.id===realRun.id);if(latest){realRun.report=latest.report;updateReportButton();}}}
+ try{[archive,accountTasks]=await Promise.all([api('/api/runs'),api('/api/tasks')]);renderArchive();refreshOpenLogs();scheduleTaskPoll();if(realRun){const latest=archive.find(r=>r.id===realRun.id);if(latest){realRun.report=latest.report;updateReportButton();}}}
  catch(error){toast(error.message);}finally{refreshing=false;}
 }
 window.refreshPortal=refreshPortal;
+// While a task is queued or running, poll the lightweight task list every 2 s; when a task
+// finishes, refresh the history too and announce the result.
+let taskPollTimer=null;
+async function pollTasks(){
+ taskPollTimer=null;
+ if(!document.hidden&&!refreshing){
+  try{
+   const before=new Map(accountTasks.map(t=>[t.task_id,t.status]));const latest=await api('/api/tasks');
+   const finished=latest.filter(t=>isActiveTask({status:before.get(t.task_id)})&&!isActiveTask(t));
+   accountTasks=latest;
+   if(finished.length){await refreshPortal();for(const t of finished)toast(t.status==='succeeded'?`「${t.filename}」评审完成`:`「${t.filename}」评审未完成：${t.error||t.message}`,t.status==='succeeded'?'success':'error');}
+   else{renderTaskLists();refreshOpenLogs();$('stat-running').textContent=accountTasks.filter(isActiveTask).length;}
+  }catch{}
+ }
+ scheduleTaskPoll();
+}
+function scheduleTaskPoll(){if(taskPollTimer)return;const pending=accountTasks.some(t=>isActiveTask(t)||(t.status==='succeeded'&&['pending','generating'].includes(t.report?.status)));if(pending)taskPollTimer=setTimeout(pollTasks,2000);}
 let openSerial=0;
 async function openRun(id){
  const serial=++openSerial;topProgress.start();$('page-workspace').classList.add('is-loading');
@@ -111,15 +242,15 @@ $('review-form').addEventListener('submit',async event=>{
  if(files.length>10||files.some(f=>!f.name.toLowerCase().endsWith('.pdf')||f.size>30*1024*1024)){
   $('upload-error').textContent='每次最多提交 10 份 PDF，每份不超过 30 MB';$('upload-error').classList.remove('hidden');return;
  }
- if(promptSaving||hasPromptDrafts()){toast('请先保存评审重点草稿');setPage('workspace');tab('prompts');return;}
+ if(promptSaving||hasPromptDrafts()){toast('请先保存提示词草稿');setPage('workspace');tab('prompts');return;}
  if(revisionPaperId&&files.length!==1){toast('修订稿一次只能选择一份文件');return;}
  let metadata;try{metadata=files.map(file=>validateClientMetadata(fileMetadata(file)));}catch(error){$('upload-error').textContent=error.message;$('upload-error').classList.remove('hidden');return;}
  uploading=true;updateUploadModel();$('upload-model').disabled=true;let submitted=0;
  try{
   for(const [index,file] of files.entries()){$('submit-btn').innerHTML=`<span class="loader loader--sm loader--light"></span>正在提交 ${index+1} / ${files.length}`;const form=new FormData();form.set('file',file);form.set('provider',$('upload-model').value);form.set('metadata',JSON.stringify(metadata[index]));if(revisionPaperId)form.set('paper_id',revisionPaperId);await api('/api/review',{method:'POST',body:form});submitted++;}
-  $('review-form').reset();perFileSettings.clear();revisionPaperId=null;$('revision-notice').classList.add('hidden');droppedFiles=null;$('paper-file').required=true;showFiles();toast(`已提交 ${submitted} 份论文，正在依次处理`);
+  $('review-form').reset();perFileSettings.clear();revisionPaperId=null;$('revision-notice').classList.add('hidden');droppedFiles=null;$('paper-file').required=true;showFiles();toast(`已提交 ${submitted} 份论文，可在右侧任务列表实时查看进度`);
  }catch(error){$('upload-error').textContent=`${submitted?`已提交 ${submitted} 份；剩余文件未提交。`:''}${error.message}`;$('upload-error').classList.remove('hidden');droppedFiles=files.slice(submitted);$('paper-file').required=false;showFiles();}
- finally{uploading=false;$('submit-btn').textContent='开始评审';$('upload-model').disabled=false;updateUploadModel();await refreshPortal();}
+ finally{uploading=false;$('submit-btn').textContent='开始评审';$('upload-model').disabled=false;updateUploadModel();await refreshPortal();if(submitted&&narrowScreen())$('task-list').scrollIntoView?.({behavior:'smooth',block:'start'});}
 });
 document.addEventListener('click',event=>{
  const page=event.target.closest('[data-page]');if(page)setPage(page.dataset.page);

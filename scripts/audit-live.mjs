@@ -56,7 +56,7 @@ try{
  const config=await json('/api/config/status');record('configuration','pass',config);
  const pdf=await fs.readFile(path.join(root,'data','samples','sample-paper.pdf'));
  const firstProvider=config.models.find(m=>m.configured)?.id;if(!firstProvider)throw Error('No configured review model');
- const form=new FormData();form.set('provider',firstProvider);form.set('metadata',JSON.stringify({degree_type:'academic_master',discipline:'engineering',major:'计算机科学与技术',research_direction:'智能评审',completion_month:'2025-06'}));form.set('file',new Blob([pdf],{type:'application/pdf'}),'audit-synthetic-paper.pdf');
+ const form=new FormData();form.set('provider',firstProvider);form.set('metadata',JSON.stringify({degree_level:'master',degree_category:'academic',discipline_category:'08',major:'计算机科学与技术',completion_month:'2025-06'}));form.set('file',new Blob([pdf],{type:'application/pdf'}),'audit-synthetic-paper.pdf');
  const first=await submit(form,'upload-parse-review');
  if(first){
   for(let p=1;p<=first.page_count;p++){

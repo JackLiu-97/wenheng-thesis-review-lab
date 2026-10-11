@@ -33,9 +33,9 @@ uv run python scripts/verify_reports.py
 npm run reports:generate -- --database data/review.sqlite3 --run <记录ID>
 ```
 
-四类虚构报告位于 data/report-samples，包括 JSON、HTML、提示词和 PDF。verify_reports.py 使用 pdfinfo、pdfplumber、Pillow 和 pdftoppm 检查文本、页边界并生成所有页面 PNG 与联系表，仍需人工检查版式。Python 仅用于这些辅助工具，不是平台运行依赖。其他机器可使用项目自己的 Python 环境安装 scripts/requirements.txt。
+六类虚构报告位于 data/report-samples，包括 JSON、HTML、提示词和 PDF。verify_reports.py 使用 pdfinfo、pdfplumber、Pillow 和 pdftoppm 检查文本、页边界并生成所有页面 PNG 与联系表，仍需人工检查版式。Python 仅用于这些辅助工具，不是平台运行依赖。其他机器可使用项目自己的 Python 环境安装 scripts/requirements.txt。
 
-自动化测试包括原有账号、DOM 和提示词行为，以及 SQLite 迁移、36 种标准组合、分数边界、错误输出、证据归属、失败重试和真实 Chromium 浏览器流程。HTTP 浏览器测试使用本地固定模型响应与 MinerU 协议替身，不调用付费服务；截图和 PDF 位于 data/ui-verification。
+自动化测试包括原有账号、DOM 和提示词行为，以及 SQLite 迁移、54 种标准组合、分数边界、错误输出、证据归属、失败重试和真实 Chromium 浏览器流程。HTTP 浏览器测试使用本地固定模型响应与 MinerU 协议替身，不调用付费服务；截图和 PDF 位于 data/ui-verification。
 
 真实服务检查只使用虚构论文，运行于独立数据目录：
 
@@ -50,6 +50,6 @@ npm run audit:live -- --run-live
 - 旧 GET /api/runs/:id/export 默认仍返回 HTML；PDF 明确使用 format=pdf，JSON 使用 format=json。
 - 新任务必须有完整背景参数。旧记录重评前需要补齐参数。
 - 参数、评分和标准均由服务端再次验证，页面限制不是唯一约束。
-- 学科大类是平台分类；没有学校专属模板、外部文献检索或自动分章长文评审。
+- 学科门类映射到平台九类学科要求；没有学校专属模板、外部文献检索或自动分章长文评审。
 - MinerU 解压依赖系统 `unzip`，页面渲染依赖 Poppler。本机组件在 `runtime/macos/poppler/`；该目录被 Git 忽略，新机器需另行安装或配置 Poppler。
 - 模型结果具有随机性；标准测试和固定响应测试验证的是规则与流程，不证明自动评分等价于人类评委判断。

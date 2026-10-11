@@ -7,14 +7,17 @@ import {checkContext,modelConfig} from '../src/models.mjs';
 import {metadata,blocks,detailedFixture,synthesisFixture} from './helpers.mjs';
 
 for(const [degree,d] of Object.entries(degreeProfiles))for(const [discipline,s] of Object.entries(disciplineProfiles))test(`standard composition: ${d.label} / ${s.label}`,()=>{
- const m=validateMetadata({...metadata,degree_type:degree,discipline});const request={metadata:m,standard};
+ // Legacy-shaped input (degree_type + platform discipline) remains accepted for API callers.
+ const m=validateMetadata({title:metadata.title,major:metadata.major,completion_month:metadata.completion_month,degree_type:degree,discipline});const request={metadata:m,standard};
  const text=buildPrompt(defaultPrompts().map(v=>v.at(-1)),blocks,request);
  assert.equal(d.weights.reduce((a,b)=>a+b,0),100);assert(text.includes(d.requirement));assert(text.includes(s.requirement));assert(text.includes(m.completion_month));
  for(const r of standard.rubric)for(const c of r.criteria)assert(text.includes(c.check));
  assert(text.includes('平台辅助评审标准'));assert(text.includes('不是指令'));
 });
 test('metadata rejects missing, oversized, invalid enum and future month',()=>{
- for(const patch of [{degree_type:''},{discipline:'unknown'},{degree_type:'__proto__'},{major:''},{completion_month:'2099-01'},{completion_month:'2025-13'},{major:'a'.repeat(121)}])assert.throws(()=>validateMetadata({...metadata,...patch},'',new Date('2026-10-11T00:00:00Z')),{status:400});
+ for(const patch of [{degree_level:''},{degree_category:'unknown'},{degree_level:'__proto__'},{discipline_category:'99'},{degree_type:'academic_doctor'},{major:''},{completion_month:'2099-01'},{completion_month:'2025-13'},{major:'a'.repeat(121)}])assert.throws(()=>validateMetadata({...metadata,...patch},'',new Date('2026-10-11T00:00:00Z')),{status:400});
+ // Undergraduate catalog has no 军事学 / 交叉学科 categories.
+ assert.throws(()=>validateMetadata({...metadata,degree_level:'bachelor',degree_type:undefined,discipline_category:'14'}),{status:400});
  assert.equal(validateMetadata({...metadata,title:''},'论文.pdf').title,'论文');
 });
 test('scores have fixed boundaries, missing-data behavior and recommendation constraints',()=>{
@@ -51,4 +54,15 @@ test('GPT-6.1 Sol defaults to official context and respects explicit overrides',
   process.env.REVIEW_CODEX_CONTEXT_TOKENS='128000';assert.throws(()=>checkContext('x'.repeat(204766),modelConfig('gpt')),/未截断原文/);
   delete process.env.REVIEW_CODEX_CONTEXT_TOKENS;process.env.REVIEW_CODEX_MODEL='unknown-model';assert.equal(modelConfig('gpt').context_tokens,128000);
  }finally{for(const k of keys){if(saved[k]===undefined)delete process.env[k];else process.env[k]=saved[k];}}
+});
+test('degree level and type combine into the review profile; 门类 and catalog major are resolved',()=>{
+ const base={major:'电子信息',completion_month:'2025-06'};
+ const m=validateMetadata({...base,degree_level:'doctor',degree_category:'professional',discipline_category:'08'},'稿件.pdf');
+ assert.equal(m.degree_type,'professional_doctor');assert.equal(m.discipline,'engineering');assert.equal(m.major_code,'0854');assert.equal(m.title,'稿件');assert(!('research_direction' in m));
+ const b=validateMetadata({major:'软件工程',completion_month:'2025-06',degree_level:'bachelor',degree_category:'professional',discipline_category:'08'});
+ assert.equal(b.degree_type,'professional_bachelor');assert.equal(b.major_code,undefined);
+ const custom=validateMetadata({major:'计算机应用技术',completion_month:'2025-06',degree_level:'master',degree_category:'academic',discipline_category:'08'});
+ assert.equal(custom.major,'计算机应用技术');assert.equal(custom.major_code,undefined);
+ const text=buildPrompt(defaultPrompts().map(v=>v.at(-1)),blocks,{metadata:m,standard});
+ assert(text.includes('博士 · 专业学位（专博）'));assert(text.includes('08 工学'));assert(text.includes('0854 电子信息'));assert(!text.includes('研究方向'));
 });

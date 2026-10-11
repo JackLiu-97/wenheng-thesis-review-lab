@@ -36,3 +36,28 @@ test('database prevents cross-paper evidence and supports revisions without repl
   assert.throws(()=>f.repo.createVersion({owner:f.user.id,paperId:f.version.paper_id,filename:'bad.pdf',storagePath:f.version.storage_path,metadata:{degree_type:'not-a-degree'}}),/degree_type/);
  }finally{await f.cleanup();}
 });
+test('task log records stage messages and attempts; failed tasks can be dismissed from the list',async()=>{
+ const f=await fixtureRepo();try{
+  f.repo.updateTask(f.task.id,{status:'running',stage:'reviewing',message:'模型正在进行六维度详细评审'});
+  const attempt=f.repo.attempt(f.task.id,'reviewing','prompt.txt');f.repo.finishAttempt(attempt.id,'failed',null,'DeepSeek 输出不完整');
+  f.repo.updateTask(f.task.id,{progress:50});
+  f.repo.updateTask(f.task.id,{status:'failed',message:'评审未完成，可从已完成阶段重试',error:'DeepSeek 输出不完整'});
+  const log=f.repo.taskLog(f.task.id);
+  assert.deepEqual(log.map(e=>e.level),['info','info','info','warning','error']);
+  assert(log[3].message.includes('第 1 次模型调用失败'));assert.equal(log.at(-1).message,'DeepSeek 输出不完整');
+  assert.throws(()=>f.repo.dismissTask('missing',f.user.id),/不存在/);
+  f.repo.dismissTask(f.task.id,f.user.id);assert.equal(f.repo.tasks(f.user.id).length,0);assert(f.repo.task(f.task.id));
+ }finally{await f.cleanup();}
+});
+test('legacy one-line default prompts upgrade once; edited prompts are kept',async()=>{
+ const {legacyDefaultFocus,defaultFocus}=await import('../src/prompts.mjs');
+ const f=await fixtureRepo();try{
+  // Simulate an account created before the upgrade: latest prompt is the old default, except one edited dimension.
+  f.repo.db.prepare('UPDATE prompt_versions SET text=? WHERE owner_id=? AND dimension_code=?').run('自定义提示词',f.user.id,'d2');
+  legacyDefaultFocus.forEach((text,i)=>{if(i!==1)f.repo.db.prepare('UPDATE prompt_versions SET text=? WHERE owner_id=? AND dimension_code=?').run(text,f.user.id,`d${i+1}`);});
+  assert.equal(f.repo.upgradeDefaultPrompts(),5);assert.equal(f.repo.upgradeDefaultPrompts(),0);
+  const prompts=f.repo.prompts(f.user.id);
+  assert.equal(prompts[0].at(-1).text,defaultFocus()[0]);assert.equal(prompts[0].at(-1).version,2);
+  assert.equal(prompts[1].at(-1).text,'自定义提示词');assert.equal(prompts[1].length,1);
+ }finally{await f.cleanup();}
+});

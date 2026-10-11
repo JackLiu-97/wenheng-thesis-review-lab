@@ -47,15 +47,20 @@ test('real HTTP upload, two model stages, browser workflow and PDF download',{ti
   const base=await new Promise((resolve,reject)=>{let text='';server.stdout.on('data',b=>{text+=b;const match=text.match(/http:\/\/127.0.0.1:\d+/);if(match)resolve(match[0]);});server.on('error',reject);server.on('exit',()=>reject(Error(diagnostics)));});
   const registration=await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'workflow_user',password:'workflow-password'})});assert.equal(registration.status,200);const cookie=registration.headers.get('set-cookie').split(';')[0];
   const request=(url,options={})=>fetch(base+url,{...options,headers:{Cookie:cookie,...options.headers}});
-  const options=await (await request('/api/review-options')).json();assert.equal(Object.keys(options.degrees).length,4);
+  const options=await (await request('/api/review-options')).json();assert.equal(Object.keys(options.degrees).length,6);assert.equal(Object.keys(options.catalog.tree.academic_bachelor).length,12);
   browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1100}});await context.addCookies([{name:'review_session',value:cookie.split('=')[1],url:base}]);const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(base+'/#review');
-  await page.waitForFunction(()=>document.getElementById('upload-degree_type')?.options.length===5);
+  await page.waitForSelector('#upload-discipline_category');
   const expected=['gpt-6.1-sol','gpt-6-astra','gpt-6-sol','gpt-6-luna','gpt-5.6-sol','deepseek-flash','deepseek-v4-pro'];
   assert.deepEqual(options.models.map(m=>m.id),expected);
   for(const selector of ['#upload-model','#review-model'])assert.deepEqual(await page.locator(selector+' option').evaluateAll(items=>items.map(o=>o.value)),expected);
   await page.locator('#upload-model').selectOption('deepseek-flash');
   await page.locator('#paper-file').setInputFiles({name:'synthetic.pdf',mimeType:'application/pdf',buffer:tinyPdf()});
-  await page.locator('#upload-degree_type').selectOption(metadata.degree_type);await page.locator('#upload-discipline').selectOption(metadata.discipline);await page.locator('#upload-major').fill(metadata.major);await page.locator('#upload-completion_month').fill(metadata.completion_month);
+  await page.locator('#upload-metadata [data-seg="degree_level"] label',{hasText:'硕士'}).click();await page.locator('#upload-metadata [data-seg="degree_category"] label',{hasText:'学术学位'}).click();
+  // Searching a major before choosing 门类 fills the 门类 automatically.
+  await page.locator('#upload-major-input').fill('计算机科学');await page.locator('#upload-major-list .combo__option',{hasText:metadata.major}).first().click();
+  assert.equal(await page.locator('#upload-discipline_category').inputValue(),metadata.discipline_category);assert.equal(await page.locator('#upload-major').inputValue(),metadata.major);
+  await page.locator('#upload-completion_month-trigger').click();await page.locator('.month-picker__year').click();await page.locator('.month-picker__cell[data-year="2025"]').click();await page.locator('.month-picker__cell[data-month="2025-06"]').click();
+  assert.equal(await page.locator('#upload-completion_month').inputValue(),metadata.completion_month);
   await page.locator('#preview-standard').click();await page.waitForFunction(()=>document.getElementById('standard-preview-text').textContent.includes('平台默认评审标准'));
   const output=path.join(root,'data','ui-verification');await fs.mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'upload-desktop.png'),fullPage:true});
   await page.locator('#submit-btn').click();

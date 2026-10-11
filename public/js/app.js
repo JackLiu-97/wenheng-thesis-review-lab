@@ -115,7 +115,11 @@ function renderPromptView(){
  const draft=promptDrafts.get(promptDim);
  $('prompt-dimensions').innerHTML=dimensions.map((d,i)=>`<button class="${i===promptDim?'active':''}" data-prompt="${i}">${esc(d)}<em>v${promptVersions?.[i]?.at(-1)?.version||'—'}${promptDrafts.get(i)?.dirty?' · 未保存':''}</em></button>`).join('');
  $('prompt-title').textContent=dimensions[promptDim];
- $('prompt-meta').textContent=snap?[typeof formatDate==='function'?formatDate(snap.date):snap.date,snap.note].filter(Boolean).join(' · '):'正在载入评审重点…';
+ // The fixed rubric for this dimension is shown beside the editable prompt so the two read as one prompt.
+ const rubric=typeof reviewSettings!=='undefined'&&reviewSettings?.standard?.rubric?.[promptDim],weight=typeof reviewSettings!=='undefined'&&reviewSettings?.degrees?.[realRun?.metadata?.degree_type]?.weights?.[promptDim];
+ $('prompt-weight').textContent=weight?`本论文权重 ${weight}%`:'';
+ $('prompt-criteria').innerHTML=rubric?rubric.criteria.map(c=>`<div class="prompt-criterion"><strong>${esc(c.name)}</strong><p>${esc(c.check)}</p></div>`).join(''):'<p class="muted">正在载入系统细则…</p>';
+ $('prompt-meta').textContent=snap?[typeof formatDate==='function'?formatDate(snap.date):snap.date,snap.note].filter(Boolean).join(' · '):'正在载入提示词…';
  $('version-select').innerHTML=versions.slice().reverse().map(v=>`<option value="${v.version}" ${v.version===snap?.version?'selected':''}>v${v.version}${v.kind!=='focus'?' · 旧版完整提示词':v.version===versions.at(-1).version?' · 最新版本':' · 历史版本'}</option>`).join('');
  $('prompt-text').value=draft?.text??snap?.text??'';
  $('prompt-text').readOnly=!snap||snap.kind!=='focus';
@@ -123,13 +127,13 @@ function renderPromptView(){
  $('version-note').disabled=!snap||snap.kind!=='focus';
  $('save-prompt').disabled=promptSaving||!snap||snap.kind!=='focus';
  $('dirty-badge').textContent=draft?.dirty?'未保存':'';if($('prompt-count'))$('prompt-count').textContent=$('prompt-text').value.length+' / 20000';
- $('prompt-status').textContent=snap?.kind!=='focus'?'旧版提示词只读；点击“载入最新版本”编辑评审重点':draft?.dirty?'草稿尚未保存；重新评审前请先保存':'仅编辑本维度评审重点';
+ $('prompt-status').textContent=snap?.kind!=='focus'?'旧版提示词只读；点击“载入最新版本”编辑提示词':draft?.dirty?'草稿尚未保存；重新评审前请先保存':'仅编辑本维度评审提示词';
  $('used-version').textContent=current()?.snapshots?.[promptDim]?`v${current().snapshots[promptDim].version}`:'暂无运行';
 }
 async function loadPromptVersions(){
  if(promptLoading)return;
  promptLoading=true;
- try{const response=await fetch('/api/prompts');if(!response.ok)throw Error('无法载入评审重点');promptVersions=await response.json();if(!$('prompts-view').classList.contains('hidden'))renderPromptView();}
+ try{const response=await fetch('/api/prompts');if(!response.ok)throw Error('无法载入提示词');promptVersions=await response.json();if(!$('prompts-view').classList.contains('hidden'))renderPromptView();}
  catch(error){toast(error.message);$('prompt-status').textContent=error.message;}
  finally{promptLoading=false;}
 }
@@ -143,7 +147,7 @@ async function savePrompt(){
  if(promptSaving)return;
  const index=promptDim,latest=promptVersions?.[index]?.at(-1);if(!latest)return;
  const draft=promptDrafts.get(index)||{text:$('prompt-text').value,note:$('version-note').value,base_version:latest.version};
- if(!draft.text.trim()){toast('评审重点不能为空');return;}
+ if(!draft.text.trim()){toast('提示词不能为空');return;}
  promptSaving=true;$('save-prompt').disabled=true;
  try{
   const response=await fetch('/api/prompts/'+index,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(draft)});
@@ -197,13 +201,15 @@ async function loadModels(){
 }
 async function startTest(){
  if(testing)return;
- if(promptSaving||hasPromptDrafts()){toast('请先保存修改过的评审重点，再重新评审');tab('prompts');return;}
+ if(promptSaving||hasPromptDrafts()){toast('请先保存修改过的提示词，再重新评审');tab('prompts');return;}
  if(!realRun){toast('请先打开一条已有评审记录');return;}
+ try{rerunMetadata();}catch(error){toast(error.message);return;}
  const provider=$('review-model').value;
  testing=true;updateModelStatus();$('review-model').disabled=true;
  $('run-overlay').classList.remove('hidden');$('run-step').textContent='正在提交评审任务…';$('run-progress').style.width='5%';
  try{
-  const form=new FormData();form.set('provider',provider);form.set('run_id',realRun.id);form.set('metadata',JSON.stringify(rerunMetadata()));
+  // The server reuses the original run's parameters when no metadata is sent.
+  const form=new FormData();form.set('provider',provider);form.set('run_id',realRun.id);
   const response=await fetch('/api/review',{method:'POST',body:form}),accepted=await response.json();
   if(!response.ok)throw Error(accepted.error||'提交失败');
   let failures=0;
@@ -212,12 +218,13 @@ async function startTest(){
    let task;
    try{const response=await fetch('/api/tasks/'+accepted.task_id);if(!response.ok)throw Error('无法读取任务状态');task=await response.json();failures=0;}
    catch(error){if(++failures>=5)throw Error('任务状态连接中断，请稍后刷新查看结果');continue;}
-   $('run-step').textContent=task.message;$('run-progress').style.width=task.progress+'%';
+   if(typeof taskProgressBlock==='function'){$('run-step').classList.add('hidden');$('run-progress').parentElement.classList.add('hidden');$('run-live').innerHTML=taskProgressBlock(task);animateBars($('run-live'));liveBase=Date.now();}
+   else{$('run-step').textContent=task.message;$('run-progress').style.width=task.progress+'%';}
    if(['failed','interrupted'].includes(task.status))throw Error(task.error||'评审失败');
    if(task.status==='succeeded'){normalizeRun(task.run);history.replaceState(null,'','#workspace/'+encodeURIComponent(task.run.id));opened.clear();selectedIssue=null;dimensionFilter='all';$('severity-filter').value='all';renderAll();tab('results');toast('重新评审完成 · '+task.run.model);if(window.refreshPortal)await window.refreshPortal();break;}
   }
  }catch(error){toast(error.message);$('model-status').textContent=error.message;}
- finally{testing=false;$('review-model').disabled=false;$('run-overlay').classList.add('hidden');const configured=availableModels.find(x=>x.id===$('review-model').value)?.configured;$('rerun-top').disabled=!configured;$('rerun-prompt').disabled=!configured;}
+ finally{testing=false;$('review-model').disabled=false;$('run-overlay').classList.add('hidden');$('run-live').innerHTML='';$('run-step').classList.remove('hidden');$('run-progress').parentElement.classList.remove('hidden');const configured=availableModels.find(x=>x.id===$('review-model').value)?.configured;$('rerun-top').disabled=!configured;$('rerun-prompt').disabled=!configured;}
 }
 $('review-model').addEventListener('change',updateModelStatus);
 $('rerun-top').addEventListener('click',startTest);

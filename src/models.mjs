@@ -47,7 +47,7 @@ export async function callModel(prompt,dir,config,schema){
  const res=await fetch(config.base_url.replace(/\/$/,'')+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${process.env.DEEPSEEK_API_KEY}`},body:JSON.stringify({model:config.model,messages:[{role:'user',content:prompt}],response_format:{type:'json_object'},max_tokens:config.output_tokens,stream:false}),signal:AbortSignal.timeout(1800000)});
  if(!res.ok)throw Object.assign(Error(`DeepSeek 请求失败：HTTP ${res.status}`),{httpStatus:res.status});
  const data=await res.json(),choice=data.choices?.[0];
- if(choice?.finish_reason!=='stop')throw Object.assign(Error('DeepSeek 输出不完整，请检查输出预算'),{validation:true});
+ if(choice?.finish_reason!=='stop')throw Object.assign(Error(`DeepSeek 输出不完整（finish_reason=${choice?.finish_reason??'无'}，输出 ${data.usage?.completion_tokens??'未知'} tokens，上限 ${config.output_tokens}），请检查输出预算`),{validation:true});
  return choice.message.content;
 }
 async function codexReview(prompt,dir,config,schema){

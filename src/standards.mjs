@@ -1,9 +1,12 @@
 export const dimensions=['选题质量','文献综述','逻辑严谨性','工作量','创新性及论文价值','论文规范性'];
+import {categories,degreeLevels,degreeCategories,availableCategories,findMajor,catalogPayload} from './catalog.mjs';
 export const degreeProfiles={
- academic_master:{label:'学硕',weights:[15,15,25,15,20,10],requirement:'研究问题明确，研究训练和过程完整；贡献可以有限，但必须清晰并得到论证。不得以博士原创突破作为硕士合格的必要条件。'},
- professional_master:{label:'专硕',weights:[15,10,25,20,20,10],requirement:'专业问题真实，方法选择合理，实践过程完整，应用效果有可靠验证。可复用方法的有效专业应用可以构成贡献，但不能以应用名义降低证据严谨性。'},
- academic_doctor:{label:'学博',weights:[10,15,25,15,25,10],requirement:'原创学术贡献清晰，研究具有充分深度、系统性和独立性；常规方法叠加或小幅指标提升本身不足以证明博士贡献。应验证贡献及成立边界。'},
- professional_doctor:{label:'专博',weights:[15,10,25,20,20,10],requirement:'针对复杂专业实践问题提出有创新性的解决方案，验证实施效果和适用边界，体现系统深度、专业判断及可迁移的实践贡献。不得只以工程规模代替创新。'}
+ academic_bachelor:{label:'学术学士',level:'bachelor',category:'academic',weights:[15,15,25,20,10,15],requirement:'本科毕业论文（设计）重点考察综合运用基础理论、专业知识和基本技能分析解决问题的能力；研究过程完整、论证清楚、表达规范即可合格，不以研究生层次的创新深度作为合格的必要条件。'},
+ professional_bachelor:{label:'专业学士',level:'bachelor',category:'professional',weights:[15,10,25,25,10,15],requirement:'面向真实专业实践问题，重点考察职业能力训练：问题来源真实、方案或设计合理、实践过程完整且结果可检验；不要求学术原创，但结论必须有依据，不能以完成工作量代替验证。'},
+ academic_master:{label:'学硕',level:'master',category:'academic',weights:[15,15,25,15,20,10],requirement:'研究问题明确，研究训练和过程完整；贡献可以有限，但必须清晰并得到论证。不得以博士原创突破作为硕士合格的必要条件。'},
+ professional_master:{label:'专硕',level:'master',category:'professional',weights:[15,10,25,20,20,10],requirement:'专业问题真实，方法选择合理，实践过程完整，应用效果有可靠验证。可复用方法的有效专业应用可以构成贡献，但不能以应用名义降低证据严谨性。'},
+ academic_doctor:{label:'学博',level:'doctor',category:'academic',weights:[10,15,25,15,25,10],requirement:'原创学术贡献清晰，研究具有充分深度、系统性和独立性；常规方法叠加或小幅指标提升本身不足以证明博士贡献。应验证贡献及成立边界。'},
+ professional_doctor:{label:'专博',level:'doctor',category:'professional',weights:[15,10,25,20,20,10],requirement:'针对复杂专业实践问题提出有创新性的解决方案，验证实施效果和适用边界，体现系统深度、专业判断及可迁移的实践贡献。不得只以工程规模代替创新。'}
 };
 export const disciplineProfiles={
  science:{label:'理学',requirement:'依据研究类型检查理论假设、推导、证明完整性、实验控制和复现条件。纯理论工作无需强制设置实验基线。'},
@@ -26,18 +29,40 @@ const checks=[
  ['检查章节组织、摘要与结论一致性、表达清晰度及关键定义。','检查术语、符号、单位、编号、图表标题和正文引用，定位具体不一致。','检查引文与参考文献对应和研究适用的披露；解析未保留版式时不得臆测字体、页边距或排版错误。']
 ];
 export const rubric=dimensions.map((name,i)=>({code:`d${i+1}`,name,criteria:names[i].map((name,j)=>({code:`d${i+1}c${j+1}`,name,check:checks[i][j]}))}));
-export const standard={id:'platform-v1',key:'platform',version:1,name:'平台默认评审标准 v1',rubric,degree_profiles:degreeProfiles,discipline_profiles:disciplineProfiles,scoring_rules:{bands:[90,80,70,60],anchors:'90–100：要求充分满足，证据与贡献突出；80–89：主要要求满足，局部可完善；70–79：基本满足但有明显不足；60–69：实质要求不足；0–59：核心要求未满足。锚点必须结合所选学位与研究类型，分数理由须解释符合哪档、为何不能更高。'}};
+export const standard={id:'platform-v2',key:'platform',version:2,name:'平台默认评审标准 v2',rubric,degree_profiles:degreeProfiles,discipline_profiles:disciplineProfiles,scoring_rules:{bands:[90,80,70,60],anchors:'90–100：要求充分满足，证据与贡献突出；80–89：主要要求满足，局部可完善；70–79：基本满足但有明显不足；60–69：实质要求不足；0–59：核心要求未满足。锚点必须结合所选学位与研究类型，分数理由须解释符合哪档、为何不能更高。'}};
 const fail=message=>Object.assign(Error(message),{status:400});
+const currentMonth=now=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(now);
+// 新提交使用「学位层次 + 学位类型 + 学科门类 + 专业」；仍兼容只带 degree_type / discipline 的旧调用与历史记录。
 export function validateMetadata(input,filename='',now=new Date()){
  if(!input||typeof input!=='object'||Array.isArray(input))throw fail('请填写论文背景参数');
  const read=(key,max,required=false)=>{const v=input[key]??'';if(typeof v!=='string'||v.length>max||required&&!v.trim())throw fail(`无效或缺少参数：${key}`);return v.trim();};
- const result={title:read('title',300)||filename.replace(/\.pdf$/i,''),degree_type:read('degree_type',50,true),discipline:read('discipline',50,true),major:read('major',120,true),research_direction:read('research_direction',300),completion_month:read('completion_month',7,true)};
- if(!Object.hasOwn(degreeProfiles,result.degree_type)||!Object.hasOwn(disciplineProfiles,result.discipline))throw fail('无效的学位类型或学科大类');
- const current=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(now);
- if(!/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(result.completion_month)||result.completion_month>current)throw fail('完成年月无效或晚于当前月份');
+ let level=read('degree_level',20),category=read('degree_category',20);const legacyType=read('degree_type',50);
+ if(!level&&!category&&legacyType){if(!Object.hasOwn(degreeProfiles,legacyType))throw fail('无效的学位类型');({level,category}=degreeProfiles[legacyType]);}
+ if(!Object.hasOwn(degreeLevels,level))throw fail('请选择学位（学士、硕士或博士）');
+ if(!Object.hasOwn(degreeCategories,category))throw fail('请选择学位类型（学术学位或专业学位）');
+ const degree_type=`${category}_${level}`;
+ if(legacyType&&legacyType!==degree_type)throw fail('学位与学位类型不一致');
+ const categoryCode=read('discipline_category',4);let discipline=read('discipline',50);
+ if(categoryCode){
+  const found=availableCategories(level,category).find(c=>c.code===categoryCode);
+  if(!found)throw fail('所选学科门类不适用于该学位类型');
+  discipline=found.profile;
+ }else if(!Object.hasOwn(disciplineProfiles,discipline))throw fail('请选择学科门类');
+ const major=read('major',120,true),catalogMajor=categoryCode?findMajor(level,category,categoryCode,major):null;
+ const result={title:read('title',300)||filename.replace(/\.pdf$/i,''),degree_level:level,degree_category:category,degree_type,...(categoryCode?{discipline_category:categoryCode}:{}),discipline,major,...(catalogMajor?.code?{major_code:catalogMajor.code}:{}),completion_month:read('completion_month',7,true)};
+ if(!/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(result.completion_month)||result.completion_month>currentMonth(now))throw fail('完成年月无效或晚于当前月份');
  return result;
 }
-export function reviewOptions(){return {degrees:degreeProfiles,disciplines:disciplineProfiles,standard,major_suggestions:['计算机科学与技术','软件工程','人工智能','机械工程','临床医学','工商管理','教育学','中国语言文学','设计学']};}
+// 供提示词与报告使用的可读背景说明。
+export function describeMetadata(meta={}){
+ const profile=degreeProfiles[meta.degree_type],category=categories.find(c=>c.code===meta.discipline_category);
+ return {
+  degree:profile?`${degreeLevels[profile.level].label} · ${degreeCategories[profile.category].label}（${profile.label}）`:'',
+  discipline:category?`${category.code} ${category.name}`:disciplineProfiles[meta.discipline]?.label||'',
+  major:meta.major?`${meta.major_code?meta.major_code+' ':''}${meta.major}`:''
+ };
+}
+export function reviewOptions(){return {degrees:degreeProfiles,disciplines:disciplineProfiles,standard,catalog:catalogPayload()};}
 export function calculateScores(reviews,metadata,policy=standard){
  const weights=policy.degree_profiles[metadata.degree_type].weights;
  const scored=reviews.map((r,i)=>({...r,weight:weights[i],score:r.assessment_status==='insufficient'?null:r.criteria.reduce((n,c)=>n+c.score,0)/3}));

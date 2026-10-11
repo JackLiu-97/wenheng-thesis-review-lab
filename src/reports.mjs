@@ -4,16 +4,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
-import {degreeProfiles,disciplineProfiles} from './standards.mjs';
+import {describeMetadata} from './standards.mjs';
 import {safeError} from './models.mjs';
-export const reportTemplateVersion='report-v2.5';
+export const reportTemplateVersion='report-v2.6';
 export const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const e=escapeHtml;
 const number=v=>v==null?'未评分':Number(v).toFixed(1);
 const list=items=>items?.length?`<ul>${items.map(v=>`<li>${e(v)}</li>`).join('')}</ul>`:'<p class="muted">未单独记录</p>';
 const date=v=>v?new Date(v).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'未记录';
 export function reportHtml(run,{fontData=null,fontBoldData=null}={}){
- const meta=run.metadata||{},policy=run.standard_snapshot;
+ const meta=run.metadata||{},policy=run.standard_snapshot,described=describeMetadata(meta);
  const blockMap=new Map((run.blocks||[]).map(b=>[b.id,b]));
  const evidenceLabel=ids=>(ids||[]).map(id=>blockMap.has(id)?`${id}（PDF 第 ${blockMap.get(id).page} 页）`:id).join('、')||'未定位';
  const evidence=new Map();for(const review of run.reviews)for(const issue of review.issues)for(const b of issue.evidence||[])evidence.set(b.id,b);
@@ -23,7 +23,7 @@ export function reportHtml(run,{fontData=null,fontBoldData=null}={}){
  @page{size:A4;margin:20mm 18mm 20mm}*{box-sizing:border-box}body{margin:0;color:#202a33;font-family:ReportCJK,"Microsoft YaHei",sans-serif;font-size:10.5pt;line-height:1.6;overflow-wrap:anywhere}main{max-width:180mm;margin:auto}h1{font-size:22pt;line-height:1.4;margin:10px 0 20px;color:#243c50}h2{font-size:15pt;margin:22px 0 10px;color:#243c50;border-bottom:1px solid #c5d2d9;padding-bottom:7px}h3{font-size:12pt;margin:16px 0 8px}h4{font-size:10.5pt;margin:10px 0 4px}h1,h2,h3,h4{break-after:avoid}p{margin:6px 0 8px;white-space:pre-wrap;orphans:3;widows:3}.kicker{font-size:10pt;letter-spacing:2px;color:#7d5141}.meta{border-top:3px solid #9b6751;padding:12px 0}.muted,small{color:#63727b;font-size:9pt}.score{font-size:28pt;font-weight:bold;color:#9b5139}.verdict{background:#f1f5f6;border-left:4px solid #526d7b;padding:12px 16px;break-inside:avoid}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:9pt;line-height:1.5}thead{display:table-header-group}th,td{border:1px solid #d6dfe3;padding:6px 8px;text-align:left;vertical-align:top}th{background:#edf2f4}tr{break-inside:avoid}.issue{border-left:2px solid #d6dfe3;padding-left:12px;margin:12px 0}.issue>small{display:block;break-after:avoid}.badge{font-size:9pt;color:#85513d}.quote{break-inside:avoid;background:#f5f6f7;border-left:2px solid #bccbd3;padding:6px 10px;font-size:9pt}.basis{font-size:9pt;break-inside:avoid}.rule-note{font-size:9pt;color:#53626a}li{margin:4px 0}a{color:#33596f;text-decoration:none}.compact{break-inside:avoid}@media screen{body{background:#eef1f3;padding:32px}main{background:white;max-width:900px;padding:36px}}
  </style></head><body><main>
  <div class="kicker">文衡 · 学位论文评审报告</div><h1>${e(meta.title||run.filename)}</h1>
- <div class="meta"><p>学位类型：${e(degreeProfiles[meta.degree_type]?.label||'历史记录未提供')}　学科：${e(disciplineProfiles[meta.discipline]?.label||'历史记录未提供')}<br>专业：${e(meta.major||'历史记录未提供')}　研究方向：${e(meta.research_direction||'未填写')}<br>完成／提交年月：${e(meta.completion_month||'历史记录未提供')}　评审时间：${e(date(run.created_at))}<br>报告编号：${e(run.id)}　论文版本：${e(run.version_no||1)}</p></div>
+ <div class="meta"><p>学位：${e(described.degree||'历史记录未提供')}　学科：${e(described.discipline||'历史记录未提供')}<br>专业：${e(described.major||'历史记录未提供')}${meta.research_direction?`　研究方向：${e(meta.research_direction)}`:''}<br>完成／提交年月：${e(meta.completion_month||'历史记录未提供')}　评审时间：${e(date(run.created_at))}<br>报告编号：${e(run.id)}　论文版本：${e(run.version_no||1)}</p></div>
  <p class="rule-note">本报告采用平台辅助评审标准，不代表学校或国家统一标准，也不替代学校正式学位评审决定。评价基于本次可解析论文材料，未进行外部文献真实性核验或查重。</p>
  <h2>一、评分总览</h2><div class="verdict"><div><span class="score">${number(run.total_score)}</span>${run.total_score!=null?' / 100':''}　${e(run.grade||'历史记录未评分')}</div><strong>综合建议：${e(run.recommendation||'历史记录未提供')}</strong><p>${e(run.recommendation_reason||'本次记录没有综合建议解释。')}</p></div>
  <table><thead><tr><th>评审维度</th><th>得分</th><th>权重</th><th>评价状态</th></tr></thead><tbody>${run.reviews.map(r=>`<tr><td>${e(r.dimension)}</td><td>${number(r.score)}</td><td>${r.weight==null?'未记录':e(r.weight)+'%'}</td><td>${r.assessment_status==='insufficient'?'材料不足':r.score==null?'历史未评分':'已评价'}</td></tr>`).join('')}</tbody></table>

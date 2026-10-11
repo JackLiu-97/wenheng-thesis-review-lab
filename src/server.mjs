@@ -14,6 +14,7 @@ import {buildPrompt,promptTemplateVersion} from './prompts.mjs';
 import {modelOptions,modelConfig,safeError} from './models.mjs';
 import {createReportService,reportHtml} from './reports.mjs';
 import {createReviewEngine} from './review-engine.mjs';
+import {liveProgress} from './progress.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 if(!process.env.REVIEW_SKIP_ENV)try{process.loadEnvFile(path.join(root,'.env'));}catch(error){if(error.code!=='ENOENT')throw error;}
@@ -21,17 +22,17 @@ const dataDir=path.resolve(process.env.REVIEW_DATA_DIR||path.join(root,'data'));
 const dbPath=path.resolve(process.env.REVIEW_DATABASE_PATH||path.join(dataDir,'review.sqlite3'));
 await fsp.mkdir(dataDir,{recursive:true});
 if(!fs.existsSync(dbPath)&&fs.existsSync(path.join(dataDir,'store.json'))){migrateLegacy({source:path.join(dataDir,'store.json'),dataDir,target:dbPath});console.log('Legacy data migrated to SQLite; original JSON retained.');}
-const repo=openDatabase(dbPath);repo.seedStandard();
+const repo=openDatabase(dbPath);repo.seedStandard();repo.upgradeDefaultPrompts();
 const reports=createReportService(repo,dataDir),engine=createReviewEngine(repo,dataDir,reports),auth=createAuth({repo});
 const execFileAsync=promisify(execFile);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.pdf':'application/pdf'};
-const publicFiles=new Set(['/login.html','/register.html','/js/auth.js','/css/theme.css','/index.html','/js/portal.js','/js/app.js','/js/review-settings.js']);
+const publicFiles=new Set(['/login.html','/register.html','/js/auth.js','/css/theme.css','/index.html','/js/portal.js','/js/app.js','/js/form-controls.js','/js/review-settings.js']);
 const send=(res,status,payload)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(payload));};
 const fail=(status,message)=>Object.assign(Error(message),{status});
 const safeName=name=>path.basename(name||'paper.pdf').replace(/[^\w\-.\u4e00-\u9fff ]/g,'_');
 async function bodyBuffer(req){const chunks=[];let size=0;const limit=req.headers['content-type']?.startsWith('multipart/')?31*1024*1024:128*1024;for await(const chunk of req){size+=chunk.length;if(size>limit)throw fail(413,'请求过大，每份 PDF 限制为 30 MB');chunks.push(chunk);}return Buffer.concat(chunks);}
 async function jsonBody(req){try{return JSON.parse((await bodyBuffer(req)).toString('utf8'));}catch(error){if(error.status)throw error;throw fail(400,'无效的 JSON 请求');}}
-function publicTask(t){const report=t.run_id?repo.report(t.run_id):null;return {task_id:t.id,filename:t.filename||t.request?.legacy_task?.filename||'历史任务',provider:t.provider,model:t.model,status:t.status,stage:t.stage,progress:t.progress,message:t.message,error:t.error,created_at:t.created_at,run_id:t.run_id,metadata:t.request.metadata||null,report:publicReport(report),can_retry:['failed','interrupted'].includes(t.status)&&!!t.paper_version_id&&!!t.request.model_config};}
+function publicTask(t){const report=t.run_id?repo.report(t.run_id):null;return {task_id:t.id,filename:t.filename||t.request?.legacy_task?.filename||'历史任务',provider:t.provider,model:t.model,status:t.status,stage:t.stage,message:t.message,error:t.error,created_at:t.created_at,started_at:t.started_at,finished_at:t.finished_at,...liveProgress(repo,t),run_id:t.run_id,metadata:t.request.metadata||null,report:publicReport(report),retry_of_task_id:t.request.retry_of_task_id||null,can_retry:['failed','interrupted'].includes(t.status)&&!!t.paper_version_id&&!!t.request.model_config};}
 function publicReport(r){if(!r)return null;const {storage_path,sha256,...result}=r;return result;}
 function publicRun(r){const {owner_id,...result}=r;return {...result,report:publicReport(result.report)};}
 async function sendFile(res,filename,type){await fsp.access(filename).catch(error=>{if(error.code==='ENOENT')throw fail(404,'文件不存在，请检查文件存储或重新生成报告');throw error;});res.setHeader('Content-Type',type);const stream=fs.createReadStream(filename);stream.on('error',()=>res.destroy());stream.pipe(res);}
@@ -60,7 +61,15 @@ async function handler(req,res){
   }
   if(req.method==='GET'&&url.pathname==='/api/prompts')return send(res,200,repo.prompts(user.id));
   if(req.method==='POST'&&/^\/api\/prompts\/\d+$/.test(url.pathname))return send(res,201,repo.appendPrompt(user.id,Number(url.pathname.split('/')[3]),await jsonBody(req)));
-  if(req.method==='GET'&&url.pathname==='/api/tasks')return send(res,200,repo.tasks(user.id).map(publicTask));
+  if(req.method==='GET'&&url.pathname==='/api/tasks'){
+   // A failed task that already has a linked retry is superseded and no longer needs attention.
+   const tasks=repo.tasks(user.id),retried=new Set(tasks.map(t=>t.request.retry_of_task_id).filter(Boolean));
+   return send(res,200,tasks.map(t=>({...publicTask(t),superseded:retried.has(t.id)})));
+  }
+  if(req.method==='GET'&&/^\/api\/tasks\/[^/]+\/log$/.test(url.pathname)){
+   const id=url.pathname.split('/')[3];if(!repo.task(id,user.id))throw fail(404,'任务不存在');return send(res,200,repo.taskLog(id));
+  }
+  if(req.method==='POST'&&/^\/api\/tasks\/[^/]+\/dismiss$/.test(url.pathname)){repo.dismissTask(url.pathname.split('/')[3],user.id);return send(res,200,{ok:true});}
   if(req.method==='POST'&&/^\/api\/tasks\/[^/]+\/retry$/.test(url.pathname)){
    const taskId=engine.retry(url.pathname.split('/')[3],user.id);engine.enqueue(taskId);return send(res,202,{task_id:taskId,status:'accepted'});
   }

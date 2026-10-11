@@ -4,12 +4,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {dimensions,standard} from './standards.mjs';
-import {defaultPrompts,focusText} from './prompts.mjs';
+import {defaultPrompts,focusText,legacyDefaultFocus,defaultFocus} from './prompts.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const encode=v=>JSON.stringify(v??null);
 const decode=(v,fallback=null)=>v==null?fallback:JSON.parse(v);
 const fail=(status,message)=>Object.assign(Error(message),{status});
+const stageNames={parsing:'解析论文',reviewing:'六维度评审',synthesizing:'综合评议'};
 
 export function openDatabase(filename){
  if(filename!==':memory:')fs.mkdirSync(path.dirname(filename),{recursive:true});
@@ -53,7 +54,12 @@ export class Repository{
  changePassword(userId,credentials){this.transaction(()=>{this.db.prepare('UPDATE users SET password_hash=?,password_salt=? WHERE id=?').run(credentials.hash,credentials.salt,userId);this.db.prepare('DELETE FROM sessions WHERE user_id=?').run(userId);});}
  prompts(owner){const rows=this.db.prepare('SELECT * FROM prompt_versions WHERE owner_id IS ? ORDER BY version').all(owner);return dimensions.map((_,i)=>{const versions=rows.filter(r=>r.dimension_code===`d${i+1}`).map(r=>({version:r.version,text:r.text,note:r.note,kind:r.kind,date:r.created_at}));return versions.length?versions:defaultPrompts()[i];});}
  importPrompts(owner,prompts){prompts.forEach((versions,i)=>{for(const p of versions)this.insert('prompt_versions',{id:id(),owner_id:owner,dimension_code:`d${i+1}`,version:p.version,text:p.text,note:p.note||'',kind:p.kind||null,created_at:p.date||now()});const latest=versions.at(-1);if(latest&&latest.kind!=='focus')this.insert('prompt_versions',{id:id(),owner_id:owner,dimension_code:`d${i+1}`,version:Math.max(...versions.map(p=>p.version))+1,text:focusText(latest,i),note:'保留历史，迁移为补充重点',kind:'focus',created_at:now()});});}
- appendPrompt(owner,index,input){return this.transaction(()=>{if(!Number.isInteger(index)||index<0||index>5||typeof input?.text!=='string'||!input.text.trim()||input.text.length>20000)throw fail(400,'无效的维度或评审重点');if(input.note!==undefined&&(typeof input.note!=='string'||input.note.length>500))throw fail(400,'版本说明不得超过 500 字符');const latest=this.prompts(owner)[index].at(-1);if(input.base_version!==latest.version)throw fail(409,'该维度已有更新，请先载入最新版本；草稿仍保留');const p={version:latest.version+1,text:input.text.trim(),note:input.note?.trim()||'更新补充重点',kind:'focus',date:now()};this.insert('prompt_versions',{id:id(),owner_id:owner,dimension_code:`d${index+1}`,version:p.version,text:p.text,note:p.note,kind:p.kind,created_at:p.date});return p;});}
+ // Accounts whose latest prompt is still the old one-line default move to the current default; edited prompts are left alone.
+ upgradeDefaultPrompts(){return this.transaction(()=>{let upgraded=0;const owners=this.db.prepare('SELECT DISTINCT owner_id FROM prompt_versions').all().map(r=>r.owner_id),next=defaultFocus();
+  for(const owner of owners)this.prompts(owner).forEach((versions,i)=>{const latest=versions.at(-1);if(latest.kind!=='focus'||latest.text.trim()!==legacyDefaultFocus[i])return;
+   this.insert('prompt_versions',{id:id(),owner_id:owner,dimension_code:`d${i+1}`,version:latest.version+1,text:next[i],note:'系统默认评审提示词升级',kind:'focus',created_at:now()});upgraded++;});
+  return upgraded;});}
+ appendPrompt(owner,index,input){return this.transaction(()=>{if(!Number.isInteger(index)||index<0||index>5||typeof input?.text!=='string'||!input.text.trim()||input.text.length>20000)throw fail(400,'无效的维度或提示词');if(input.note!==undefined&&(typeof input.note!=='string'||input.note.length>500))throw fail(400,'版本说明不得超过 500 字符');const latest=this.prompts(owner)[index].at(-1);if(input.base_version!==latest.version)throw fail(409,'该维度已有更新，请先载入最新版本；草稿仍保留');const p={version:latest.version+1,text:input.text.trim(),note:input.note?.trim()||'更新评审提示词',kind:'focus',date:now()};this.insert('prompt_versions',{id:id(),owner_id:owner,dimension_code:`d${index+1}`,version:p.version,text:p.text,note:p.note,kind:p.kind,created_at:p.date});return p;});}
  paper(paperId,owner){return this.db.prepare('SELECT * FROM papers WHERE id=? AND owner_id=?').get(paperId,owner);}
  createVersion({owner,paperId,filename,storagePath,metadata,bytes,versionId=id(),createdAt=now()}){return this.transaction(()=>{
   if(paperId&&!this.paper(paperId,owner))throw fail(404,'论文不存在');
@@ -63,11 +69,38 @@ export class Repository{
   this.db.prepare('UPDATE papers SET updated_at=? WHERE id=?').run(createdAt,paperId);return this.version(versionId);
  });}
  version(versionId){const row=this.db.prepare('SELECT v.*,p.owner_id FROM paper_versions v JOIN papers p ON p.id=v.paper_id WHERE v.id=?').get(versionId);return row?{...row,metadata:decode(row.metadata_json)}:null;}
- createTask(task){this.insert('review_tasks',{id:task.id,owner_id:task.owner_id,paper_version_id:task.paper_version_id,parent_run_id:task.parent_run_id||null,provider:task.provider,model:task.model,status:task.status||'queued',stage:task.stage||'queued',request_snapshot_json:encode(task.request),checkpoint_json:null,error:task.error||null,message:task.message||'已加入评审队列',progress:task.progress||0,created_at:task.created_at||now(),started_at:null,finished_at:null});return this.task(task.id);}
+ createTask(task){this.insert('review_tasks',{id:task.id,owner_id:task.owner_id,paper_version_id:task.paper_version_id,parent_run_id:task.parent_run_id||null,provider:task.provider,model:task.model,status:task.status||'queued',stage:task.stage||'queued',request_snapshot_json:encode(task.request),checkpoint_json:null,error:task.error||null,message:task.message||'已加入评审队列',progress:task.progress||0,created_at:task.created_at||now(),started_at:null,finished_at:null});this.logEvent(task.id,task.stage||'queued','info',task.message||'已加入评审队列');return this.task(task.id);}
  task(taskId,owner){const row=this.db.prepare(`SELECT t.*,v.original_filename filename FROM review_tasks t LEFT JOIN paper_versions v ON v.id=t.paper_version_id WHERE t.id=?${owner===undefined?'':' AND t.owner_id=?'}`).get(...(owner===undefined?[taskId]:[taskId,owner]));if(!row)return null;const run=this.db.prepare('SELECT id FROM review_runs WHERE task_id=?').get(taskId);return {...row,task_id:row.id,request:decode(row.request_snapshot_json,{}),checkpoint:decode(row.checkpoint_json),run_id:run?.id};}
- tasks(owner){return this.db.prepare('SELECT id FROM review_tasks WHERE owner_id=? ORDER BY created_at').all(owner).map(r=>this.task(r.id,owner));}
- updateTask(taskId,changes){const allowed=['status','stage','error','message','progress','started_at','finished_at','checkpoint_json'];const data=Object.fromEntries(Object.entries(changes).filter(([k])=>allowed.includes(k)));const keys=Object.keys(data);if(keys.length)this.db.prepare(`UPDATE review_tasks SET ${keys.map(k=>k+'=?').join(',')} WHERE id=?`).run(...keys.map(k=>data[k]),taskId);}
- recover(){this.transaction(()=>{this.db.prepare("UPDATE review_tasks SET status='interrupted',error='服务重启，任务已中断；可从已完成阶段重试',message='任务已中断' WHERE status='running'").run();this.db.prepare("UPDATE review_attempts SET status='interrupted',finished_at=? WHERE status='running'").run(now());this.db.prepare("UPDATE report_files SET status='failed',error='报告生成被中断，可单独重试' WHERE status='generating'").run();});return this.db.prepare("SELECT id FROM review_tasks WHERE status='queued' ORDER BY created_at").all().map(t=>t.id);}
+ tasks(owner){return this.db.prepare('SELECT id FROM review_tasks WHERE owner_id=? AND dismissed_at IS NULL ORDER BY created_at').all(owner).map(r=>this.task(r.id,owner));}
+ updateTask(taskId,changes){const allowed=['status','stage','error','message','progress','started_at','finished_at','checkpoint_json','stage_started_at'];const data=Object.fromEntries(Object.entries(changes).filter(([k])=>allowed.includes(k)));const keys=Object.keys(data);if(!keys.length)return;
+  const before=this.db.prepare('SELECT status,stage,message,error FROM review_tasks WHERE id=?').get(taskId);
+  this.db.prepare(`UPDATE review_tasks SET ${keys.map(k=>k+'=?').join(',')} WHERE id=?`).run(...keys.map(k=>data[k]),taskId);
+  if(!before)return;const stage=data.stage??before.stage;
+  // Log only what a reader would care about: new messages, new errors and the final outcome.
+  if(data.error&&data.error!==before.error)this.logEvent(taskId,stage,'error',data.error);
+  else if(data.message&&data.message!==before.message)this.logEvent(taskId,stage,data.status==='succeeded'?'success':data.status==='failed'?'error':'info',data.message);
+ }
+ logEvent(taskId,stage,level,message){this.db.prepare('INSERT INTO task_events (task_id,created_at,stage,level,message) VALUES (?,?,?,?,?)').run(taskId,now(),stage||null,level,String(message).slice(0,2000));}
+ // Recorded events; tasks from before event logging get a log rebuilt from their attempts.
+ taskLog(taskId,limit=300){
+  const events=this.db.prepare('SELECT created_at,stage,level,message FROM task_events WHERE task_id=? ORDER BY id DESC LIMIT ?').all(taskId,limit).reverse();
+  if(events.length)return events;
+  const task=this.db.prepare('SELECT * FROM review_tasks WHERE id=?').get(taskId);if(!task)return [];
+  const log=[{created_at:task.created_at,stage:'queued',level:'info',message:'已加入评审队列'}];
+  for(const a of this.db.prepare('SELECT * FROM review_attempts WHERE task_id=? ORDER BY started_at').all(taskId)){
+   log.push({created_at:a.started_at,stage:a.stage,level:'info',message:`${stageNames[a.stage]||a.stage}：第 ${a.attempt_no} 次模型调用开始`});
+   if(a.finished_at)log.push({created_at:a.finished_at,stage:a.stage,level:a.status==='succeeded'?'success':'error',message:a.status==='succeeded'?`${stageNames[a.stage]||a.stage}：第 ${a.attempt_no} 次模型调用完成`:`${stageNames[a.stage]||a.stage}：第 ${a.attempt_no} 次模型调用${a.status==='interrupted'?'被中断':'失败'}${a.error?'：'+a.error:''}`});
+  }
+  if(task.status==='succeeded')log.push({created_at:task.finished_at||task.created_at,stage:'completed',level:'success',message:task.message||'评审完成'});
+  else if(task.error&&!log.some(e=>e.message.endsWith(task.error)))log.push({created_at:task.finished_at||task.created_at,stage:task.stage,level:'error',message:task.error});
+  return log;
+ }
+ dismissTask(taskId,owner){const task=this.task(taskId,owner);if(!task)throw fail(404,'任务不存在');if(!['failed','interrupted'].includes(task.status))throw fail(409,'仅失败或中断的任务可以移除');this.db.prepare('UPDATE review_tasks SET dismissed_at=? WHERE id=?').run(now(),taskId);}
+ // Recent successful durations (seconds) of a model stage; used to estimate remaining time.
+ stageDurations(stage,model,limit=20){const query=sameModel=>this.db.prepare(`SELECT (julianday(a.finished_at)-julianday(a.started_at))*86400 seconds FROM review_attempts a JOIN review_tasks t ON t.id=a.task_id WHERE a.stage=? AND a.status='succeeded' AND a.finished_at IS NOT NULL${sameModel?' AND t.model=?':''} ORDER BY a.started_at DESC LIMIT ?`).all(...(sameModel?[stage,model,limit]:[stage,limit])).map(r=>r.seconds).filter(n=>Number.isFinite(n)&&n>0);const own=model?query(true):[];return own.length?own:query(false);}
+ runningAttempt(taskId){return this.db.prepare("SELECT stage,attempt_no,started_at FROM review_attempts WHERE task_id=? AND status='running' ORDER BY started_at DESC LIMIT 1").get(taskId)||null;}
+ queuePosition(taskId,createdAt){return this.db.prepare("SELECT count(*) n FROM review_tasks WHERE id<>? AND (status='running' OR (status='queued' AND created_at<?))").get(taskId,createdAt).n;}
+ recover(){this.transaction(()=>{for(const t of this.db.prepare("SELECT id,stage FROM review_tasks WHERE status='running'").all())this.logEvent(t.id,t.stage,'error','服务重启，任务已中断；可从已完成阶段重试');this.db.prepare("UPDATE review_tasks SET status='interrupted',error='服务重启，任务已中断；可从已完成阶段重试',message='任务已中断' WHERE status='running'").run();this.db.prepare("UPDATE review_attempts SET status='interrupted',finished_at=? WHERE status='running'").run(now());this.db.prepare("UPDATE report_files SET status='failed',error='报告生成被中断，可单独重试' WHERE status='generating'").run();});return this.db.prepare("SELECT id FROM review_tasks WHERE status='queued' ORDER BY created_at").all().map(t=>t.id);}
  saveParse(versionId,parsed,artifactPath,parser='MinerU'){
   return this.transaction(()=>{const parseId=id();const blocks=parsed.blocks||[];const count=parsed.pageSizes?.length||Math.max(1,...blocks.map(b=>b.page));
    this.insert('parse_results',{id:parseId,paper_version_id:versionId,parser,parser_version:process.env.MINERU_MODEL_VERSION||'vlm',status:'ready',page_count:count,page_sizes_json:encode(parsed.pageSizes||[]),coordinate_system_json:encode(parsed.coordinateSize||[1000,1000]),artifact_path:artifactPath,error:null,created_at:now()});
@@ -77,8 +110,12 @@ export class Repository{
  }
  parse(parseId){const row=this.db.prepare('SELECT * FROM parse_results WHERE id=?').get(parseId);if(!row)return null;return {...row,pageSizes:decode(row.page_sizes_json,[]),coordinateSize:decode(row.coordinate_system_json,[1000,1000]),blocks:this.db.prepare('SELECT * FROM document_blocks WHERE parse_result_id=? ORDER BY sequence_no').all(parseId).map(b=>({id:b.source_block_id,type:b.block_type,page:b.page_no,text:b.text,bbox:decode(b.bbox_json)}))};}
  latestParse(versionId){const row=this.db.prepare("SELECT id FROM parse_results WHERE paper_version_id=? AND status='ready' ORDER BY created_at DESC LIMIT 1").get(versionId);return row?this.parse(row.id):null;}
- attempt(taskId,stage,inputPath){const n=this.db.prepare('SELECT coalesce(max(attempt_no),0)+1 n FROM review_attempts WHERE task_id=? AND stage=?').get(taskId,stage).n;const row={id:id(),task_id:taskId,stage,attempt_no:n,status:'running',input_path:inputPath,output_path:null,error:null,started_at:now(),finished_at:null};this.insert('review_attempts',row);return row;}
- finishAttempt(attemptId,status,outputPath,error=null){this.db.prepare('UPDATE review_attempts SET status=?,output_path=?,error=?,finished_at=? WHERE id=?').run(status,outputPath,error,now(),attemptId);}
+ attempt(taskId,stage,inputPath){const n=this.db.prepare('SELECT coalesce(max(attempt_no),0)+1 n FROM review_attempts WHERE task_id=? AND stage=?').get(taskId,stage).n;const row={id:id(),task_id:taskId,stage,attempt_no:n,status:'running',input_path:inputPath,output_path:null,error:null,started_at:now(),finished_at:null};this.insert('review_attempts',row);this.logEvent(taskId,stage,'info',`${stageNames[stage]||stage}：第 ${n} 次模型调用开始`);return row;}
+ finishAttempt(attemptId,status,outputPath,error=null){this.db.prepare('UPDATE review_attempts SET status=?,output_path=?,error=?,finished_at=? WHERE id=?').run(status,outputPath,error,now(),attemptId);
+  const a=this.db.prepare('SELECT task_id,stage,attempt_no,started_at,finished_at FROM review_attempts WHERE id=?').get(attemptId);if(!a)return;
+  const seconds=Math.max(0,Math.round((new Date(a.finished_at)-new Date(a.started_at))/1000)),name=stageNames[a.stage]||a.stage;
+  this.logEvent(a.task_id,a.stage,status==='succeeded'?'success':'warning',status==='succeeded'?`${name}：第 ${a.attempt_no} 次模型调用完成，用时 ${seconds} 秒`:`${name}：第 ${a.attempt_no} 次模型调用失败（用时 ${seconds} 秒）${error?'：'+error:''}`);
+ }
  saveRun(taskId,parseId,result,{runId=taskId,createdAt=now(),legacy=false}={}){return this.transaction(()=>{
   this.insert('review_runs',{id:runId,task_id:taskId,parse_result_id:parseId,result_schema_version:legacy?1:2,overall_summary:result.overall_summary||null,strengths_json:encode(result.strengths||[]),limitations_json:encode(result.limitations||[]),revision_plan_json:encode(result.revision_plan||[]),recommendation_reason:result.recommendation_reason||null,total_score:result.total_score??null,grade:result.grade||null,recommendation:result.recommendation||null,assessment_status:legacy?'legacy':result.assessment_status,created_at:createdAt});
   for(const [i,r] of result.reviews.entries()){
