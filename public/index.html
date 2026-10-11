@@ -1,18 +1,300 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文衡 · 学位论文评审实验平台</title><link rel="stylesheet" href="/css/style.css"><link rel="stylesheet" href="/css/theme.css"><link rel="stylesheet" href="/css/portal.css"></head><body><div class="mobile-header"><span class="mobile-header__brand">文衡</span><button id="mobile-menu-btn" class="mobile-header__btn" aria-label="展开导航" aria-expanded="false">☰</button></div><div id="sidebar-overlay" class="sidebar-overlay"></div>
-<div class="app-shell"><aside id="sidebar" class="sidebar"><a class="sidebar__brand" href="#dashboard"><div class="sidebar__logo">文</div><span class="sidebar__name">文衡</span></a><nav class="sidebar__nav" aria-label="主导航">
-<button class="sidebar__item sidebar__item--active" data-page="dashboard"><span aria-hidden="true">▦</span> 仪表盘</button>
-<button class="sidebar__item" data-page="review"><span aria-hidden="true">＋</span> 新建评审</button>
-<button class="sidebar__item" data-page="history"><span aria-hidden="true">◷</span> 评审历史</button>
-<button class="sidebar__item" data-page="workspace"><span aria-hidden="true">▤</span> 评审工作台</button>
-<button class="sidebar__item" data-page="profile"><span aria-hidden="true">○</span> 个人中心</button></nav><div class="sidebar__divider"></div><div class="sidebar__bottom"><div class="sidebar__user"><div class="sidebar__avatar" id="user-avatar">文</div><span class="sidebar__username" id="current-username">载入中</span></div><button id="logout-btn" class="sidebar__item logout">退出登录 →</button></div></aside><main class="main-content">
-<section id="page-dashboard"><div class="main-content__header"><p class="section-kicker">文衡 · 学位论文评审实验平台</p><h1 class="main-content__greeting" id="greeting-text">欢迎回来</h1><p class="main-content__date" id="current-date"></p></div>
-<div class="stats-row"><div class="stat-card"><div class="stat-card__label">评审记录</div><div class="stat-card__value" id="stat-total">0</div></div><div class="stat-card stat-card--warning"><div class="stat-card__label">排队 / 进行中</div><div class="stat-card__value" id="stat-running">0</div></div><div class="stat-card stat-card--success"><div class="stat-card__label">已完成</div><div class="stat-card__value" id="stat-done">0</div></div><div class="stat-card stat-card--accent"><div class="stat-card__label">失败任务</div><div class="stat-card__value" id="stat-failed">0</div></div></div>
-<div class="content-grid"><div class="card"><div class="card__header"><h2 class="card__title">最近评审</h2><button class="btn btn--outline btn--sm" data-page="history">查看全部</button></div><div class="card__body" id="recent-list"></div></div><div class="card"><div class="card__header"><h2 class="card__title">从一篇论文开始</h2></div><div class="card__body"><p>上传 PDF，选择模型，从六个维度获得可追溯的评审意见。</p><button class="btn btn--accent wide" data-page="review">新建评审 →</button><div class="quick-info"><span>六维度评审</span><span>原文证据定位</span><span>独立评审重点</span></div></div></div></div></section>
-<section id="page-review" class="hidden"><div class="main-content__header"><p class="section-kicker">NEW REVIEW</p><h1 class="main-content__greeting">新建评审</h1><p class="main-content__date">上传论文 PDF，选择模型，开始一次完整的六维度评审。</p></div><div class="card upload-card"><div class="card__body"><form id="review-form"><label class="upload-area" id="upload-area" for="paper-file"><span class="upload-symbol" aria-hidden="true">↥</span><p class="upload-area__text"><strong>选择论文</strong> 或拖拽文件到此处</p><p class="upload-area__hint">支持 PDF，可多选；每份最大 30 MB</p><input id="paper-file" type="file" accept=".pdf,application/pdf" multiple required><span id="file-name"></span></label><div id="revision-notice" class="hidden"></div><h3>论文背景 <small>批量上传时作为公共参数</small></h3><div id="upload-metadata" class="metadata-grid"></div><datalist id="major-options"></datalist><div id="file-settings"></div><div class="upload-options"><label for="upload-model">评审模型<select id="upload-model"><option value="">正在加载模型…</option></select></label><p id="upload-model-status"></p></div><p class="upload-note">采用平台默认评审标准，结合学位、学科及完成年月；使用最新保存的补充重点。多份论文依次排队。</p><button id="preview-standard" type="button" class="btn btn--outline">预览生效标准</button><details id="standard-preview" class="hidden"><summary>本次评审标准与提示词</summary><pre id="standard-preview-text"></pre></details><button id="submit-btn" class="btn btn--primary wide" type="submit">开始评审 →</button><p id="upload-error" class="error-box hidden" role="alert"></p></form></div></div><div class="card tasks-card"><div class="card__header"><h2 class="card__title">任务列表</h2><button class="btn btn--outline btn--sm" id="refresh-tasks">刷新</button></div><div class="card__body" id="task-list"></div></div></section>
-<section id="page-history" class="hidden"><div class="main-content__header"><p class="section-kicker">REVIEW ARCHIVE</p><h1 class="main-content__greeting">评审历史</h1><p class="main-content__date">查看当前账号的论文、模型与评审结果。</p></div><div class="card"><div class="card__header"><h2 class="card__title">全部记录</h2><div class="history-tools"><input id="history-search" type="search" placeholder="搜索论文或专业" aria-label="搜索论文或专业"><select id="history-degree" aria-label="按学位筛选"><option value="">全部学位</option></select><select id="history-grade" aria-label="按等级筛选"><option value="">全部等级</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select><button id="refresh-history-btn" class="btn btn--outline btn--sm">刷新</button></div></div><div class="card__body" id="archive-list"></div></div></section>
-<section id="page-profile" class="hidden"><div class="main-content__header"><p class="section-kicker">ACCOUNT</p><h1 class="main-content__greeting">个人中心</h1><p class="main-content__date">管理你的账号与访问凭据。</p></div><div class="content-grid"><div class="card"><div class="card__header"><h2 class="card__title">账号信息</h2></div><div class="card__body"><div class="profile-field"><span class="profile-field__label">用户名</span><span id="profile-username"></span></div><div class="profile-field"><span class="profile-field__label">联系电话</span><span id="profile-phone"></span></div><div class="profile-field"><span class="profile-field__label">注册时间</span><span id="profile-created"></span></div></div></div><div class="card"><div class="card__header"><h2 class="card__title">修改密码</h2></div><div class="card__body"><form id="password-form" class="auth-form"><label class="auth-field__label" for="old-password">当前密码</label><input id="old-password" class="auth-field__input" type="password" autocomplete="current-password" maxlength="128" required><label class="auth-field__label" for="new-password">新密码</label><input id="new-password" class="auth-field__input" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="至少 8 位" required><label class="auth-field__label" for="confirm-password">确认新密码</label><input id="confirm-password" class="auth-field__input" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><button type="submit" class="btn btn--primary">保存并重新登录</button><p id="password-message" role="status"></p></form></div></div></div></section>
-<section id="page-workspace" class="hidden"><div id="workspace-empty" class="empty hidden">请选择历史评审记录，或上传论文开始新的评审。</div><div class="paper-heading"><div><div class="eyebrow">REVIEW WORKSPACE <span>／ 真实论文</span></div><h1>面向学术论文的多智能体辅助评审方法</h1><div class="paper-meta"><span>▤ 论文 PDF</span><span>载入中</span><span>等待真实运行结果</span></div></div><div class="heading-actions"><label class="model-picker" for="review-model">评审模型<select id="review-model"><option value="">正在加载模型…</option></select></label><span id="model-status" role="status"></span><button id="export" class="button">↓ 下载 PDF</button><button id="rerun-top" class="button primary">▶ 重新评审</button></div></div>
-<section id="run-overview" class="card"></section><details class="card rerun-settings"><summary>重评参数与系统标准</summary><div class="card__body"><p>默认继承本次参数。修改后重新评审会产生新记录，旧结果保留。</p><div id="rerun-metadata" class="metadata-grid"></div><button id="preview-rerun-standard" class="btn btn--outline" type="button">预览当前参数对应标准</button><button id="upload-revision" class="btn btn--outline" type="button">上传此论文的修订稿</button><details id="rerun-preview" class="hidden"><summary>生效标准与提示词</summary><pre id="rerun-preview-text"></pre></details></div></details><div class="split-layout"><section class="pdf-pane" aria-label="论文原文"><div class="pane-header"><strong>▤ 论文原文</strong><a href="#" target="_blank" rel="noopener">打开 PDF ↗</a></div><div class="pdf-toolbar"><span class="continuous-label">连续阅读</span><span><b id="page-current">1</b> / <b id="page-total">载入中</b> 页</span><span class="toolbar-divider"></span><button id="zoom-out" aria-label="缩小">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="放大">＋</button><button id="fit-page">适应宽度</button><label class="highlight-toggle"><input id="highlight-toggle" type="checkbox" checked> 证据高亮</label></div><div class="pdf-scroll" id="pdf-scroll"><div id="pdf-pages" class="pdf-pages"></div></div><div class="pdf-footer"><span id="page-chapter">研究背景与相关工作</span><span><b class="yellow-dot"></b> 点击高亮可查看关联意见</span></div></section>
-<section class="review-pane"><div class="workspace-toolbar"><div class="run-info"><i></i><span id="current-run-label"></span><span class="separator">|</span><span>本地保存</span></div><nav class="tabs" aria-label="工作台视图"><button class="active" data-tab="results">评审意见 <span id="issue-total">8</span></button><button data-tab="prompts">提示词配置 <span>6</span></button><button data-tab="history">运行历史 <span id="run-total">1</span></button></nav></div><div id="results-view" class="view"><div class="review-summary"><div class="summary-stats"><div><strong id="count-issues">8</strong><span>评审意见</span></div><div><strong id="count-major">4</strong><span>重点关注</span></div><div><strong>6<span>/6</span></strong><span>评审维度</span></div></div></div><div class="filter-row"><div class="filter-chips" id="dimension-filters"></div><select id="severity-filter" aria-label="筛选意见级别"><option value="all">所有级别</option><option value="major">重点关注</option><option value="minor">改进建议</option><option value="positive">值得肯定</option></select></div><div class="results-scroll" id="issue-list"></div><div class="panel-footnote">意见来自后端真实运行；高亮使用论文证据的 page + bbox。</div></div>
-<div id="prompts-view" class="view hidden"><div class="view-heading"><div class="eyebrow">PROMPT LAB</div><h2>把评审标准，调到你需要的精度。</h2><p>系统标准由学位、学科和时间共同决定。下方编辑你的补充重点，不能覆盖系统评分与证据规则。</p></div><div class="prompt-dimensions" id="prompt-dimensions"></div><div class="prompt-editor"><div class="editor-heading"><strong id="prompt-title"></strong><select id="version-select" aria-label="提示词版本"></select></div><div id="prompt-meta" class="muted"></div><label for="prompt-text" class="field-label">我的补充重点 <span id="dirty-badge"></span></label><textarea id="prompt-text" spellcheck="false" maxlength="20000"></textarea><label for="version-note" class="field-label">版本说明</label><input id="version-note" maxlength="500" placeholder="例如：加强证据约束，减少泛泛而谈的意见"><div class="prompt-actions"><span id="prompt-status" role="status"></span><button id="restore" class="button">载入最新版本</button><button id="save-prompt" class="button primary">保存为新版本</button></div><div class="prompt-tip">当前运行使用 <strong id="used-version"></strong>。修改提示词不会改变旧结果；重评使用各维度最新保存版本。</div><div class="rerun-row"><select id="rerun-scope" aria-label="重新评审范围"><option value="all">重评全部六个维度</option></select><button id="rerun-prompt" class="button primary">↻ 重新评审</button></div></div></div>
-<div id="history-view" class="view hidden"><div class="view-heading"><div class="eyebrow">RUN HISTORY</div><h2>每次调整，都留有记录。</h2><p>切换运行查看对应意见与提示词快照。运行记录来自后端真实评审。</p></div><div id="history-list" class="history-list"></div></div></section></div></section></main></div><div id="toast" role="status"></div><div id="run-overlay" class="run-overlay hidden"><div class="run-modal"><span class="loader"></span><h2>正在处理真实评审流程</h2><p id="run-step">载入已保存提示词版本…</p><div class="progress-track"><div id="run-progress"></div></div><small>真实运行由后端解析论文并生成评审结果。</small></div></div><script src="/js/app.js"></script><script src="/js/review-settings.js"></script><script src="/js/portal.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>文衡 · 学位论文评审实验平台</title>
+<link rel="stylesheet" href="/css/theme.css">
+</head>
+<body class="app-page">
+<svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true" style="display:none">
+ <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
+ <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+ <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+ <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+ <symbol id="i-workspace" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M15.5 9h2.5M15.5 13h2.5M6 9h3M6 13h3"/></symbol>
+ <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.6 3.6-6 8-6s8 2.4 8 6"/></symbol>
+ <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+ <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+ <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+ <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+ <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5"/></symbol>
+ <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+ <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+ <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+ <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+ <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+ <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+ <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></symbol>
+ <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+ <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+ <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+ <symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+ <symbol id="i-collapse" viewBox="0 0 24 24"><path d="m7 14 5-5 5 5"/></symbol>
+ <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+</svg>
+
+<header class="mobile-header">
+ <span class="mobile-header__brand"><span class="brand-mark">文</span>文衡</span>
+ <button id="mobile-menu-btn" class="mobile-header__btn icon-btn" aria-label="展开导航" aria-expanded="false"><svg class="icon"><use href="#i-menu"/></svg></button>
+</header>
+<div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+<div class="app-shell">
+<aside id="sidebar" class="sidebar">
+ <a class="sidebar__brand" href="#dashboard"><span class="brand-mark">文</span><span><span class="sidebar__name">文衡</span><span class="sidebar__tagline">学位论文评审实验平台</span></span></a>
+ <nav class="sidebar__nav" aria-label="主导航">
+  <button class="sidebar__item sidebar__item--active" data-page="dashboard"><svg class="icon"><use href="#i-dashboard"/></svg>仪表盘</button>
+  <button class="sidebar__item" data-page="review"><svg class="icon"><use href="#i-plus"/></svg>新建评审</button>
+  <button class="sidebar__item" data-page="history"><svg class="icon"><use href="#i-history"/></svg>评审历史</button>
+  <button class="sidebar__item" data-page="workspace"><svg class="icon"><use href="#i-workspace"/></svg>评审工作台</button>
+  <button class="sidebar__item" data-page="profile"><svg class="icon"><use href="#i-user"/></svg>个人中心</button>
+ </nav>
+ <div class="sidebar__bottom">
+  <div class="sidebar__user"><div class="sidebar__avatar" id="user-avatar">文</div><span class="sidebar__username" id="current-username">载入中</span></div>
+  <button id="logout-btn" class="sidebar__item logout"><svg class="icon"><use href="#i-logout"/></svg>退出登录</button>
+ </div>
+</aside>
+
+<main class="main-content">
+
+<section id="page-dashboard" class="page">
+ <div class="page-header">
+  <div><h1 class="page-title" id="greeting-text">欢迎回来</h1><p class="page-desc" id="current-date"></p></div>
+  <div class="page-actions"><button class="btn btn--primary" data-page="review"><svg class="icon"><use href="#i-plus"/></svg>新建评审</button></div>
+ </div>
+ <div class="stats-row">
+  <div class="stat-card" data-page="history" role="button" tabindex="0" title="查看评审历史"><div class="stat-card__icon"><svg class="icon"><use href="#i-layers"/></svg></div><div><div class="stat-card__label">评审记录</div><div class="stat-card__value" id="stat-total">–</div></div></div>
+  <div class="stat-card stat-card--warning" data-page="review" role="button" tabindex="0" title="查看任务列表"><div class="stat-card__icon"><svg class="icon"><use href="#i-clock"/></svg></div><div><div class="stat-card__label">排队 / 进行中</div><div class="stat-card__value" id="stat-running">–</div></div></div>
+  <div class="stat-card stat-card--success" data-page="history" role="button" tabindex="0" title="查看评审历史"><div class="stat-card__icon"><svg class="icon"><use href="#i-check"/></svg></div><div><div class="stat-card__label">已完成</div><div class="stat-card__value" id="stat-done">–</div></div></div>
+  <div class="stat-card stat-card--danger" data-page="review" role="button" tabindex="0" title="查看失败任务"><div class="stat-card__icon"><svg class="icon"><use href="#i-alert"/></svg></div><div><div class="stat-card__label">失败任务</div><div class="stat-card__value" id="stat-failed">–</div></div></div>
+ </div>
+ <div class="content-grid">
+  <div class="card">
+   <div class="card__header"><h2 class="card__title">最近评审</h2><button class="btn btn--ghost btn--sm" data-page="history">查看全部</button></div>
+   <div class="card__body card__body--flush" id="recent-list"><div class="skeleton-list"><span></span><span></span><span></span></div></div>
+  </div>
+  <div class="side-stack">
+   <div class="card">
+    <div class="card__header"><h2 class="card__title">进行中的任务</h2><button class="btn btn--ghost btn--sm" data-page="review">任务列表</button></div>
+    <div class="card__body card__body--flush" id="dash-tasks"><div class="skeleton-list"><span></span></div></div>
+   </div>
+   <div class="card">
+    <div class="card__header"><h2 class="card__title">评分概览</h2></div>
+    <div class="card__body" id="dash-grades"><div class="skeleton-list"><span></span><span></span></div></div>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section id="page-review" class="page hidden">
+ <div class="page-header"><div><h1 class="page-title">新建评审</h1><p class="page-desc">上传论文 PDF，填写论文背景并选择模型；多份论文会依次排队评审。</p></div></div>
+ <div class="review-layout">
+  <div class="card upload-card">
+   <form id="review-form" class="card__body">
+    <label class="upload-area" id="upload-area" for="paper-file">
+     <span class="upload-symbol" aria-hidden="true"><svg class="icon"><use href="#i-upload"/></svg></span>
+     <span class="upload-area__copy"><span class="upload-area__text"><strong>选择论文 PDF</strong> 或拖拽文件到此处</span><span class="upload-area__hint">可多选，最多 10 份，每份不超过 30 MB</span></span>
+     <input id="paper-file" type="file" accept=".pdf,application/pdf" multiple required>
+     <span id="file-name" class="upload-area__files"></span>
+    </label>
+    <div id="file-settings" class="file-list"></div>
+    <div id="revision-notice" class="notice hidden"></div>
+
+    <div class="form-section">
+     <div class="form-section__head"><h3>论文背景</h3><span class="form-section__hint">批量上传时作为公共参数，可在上方文件列表中单独覆盖</span></div>
+     <div id="upload-metadata" class="metadata-grid"></div>
+     <datalist id="major-options"></datalist>
+    </div>
+
+    <div class="form-section">
+     <div class="form-section__head"><h3>评审设置</h3></div>
+     <div class="upload-options">
+      <label for="upload-model" class="field"><span>评审模型</span><select id="upload-model"><option value="">正在加载模型…</option></select></label>
+      <p id="upload-model-status" class="field-status"></p>
+     </div>
+     <p class="upload-note">采用平台默认评审标准，并结合学位、学科及完成年月；各维度使用最新保存的补充重点。</p>
+    </div>
+
+    <details id="standard-preview" class="preview-box hidden"><summary>本次评审标准与提示词</summary><div id="standard-preview-text" class="preview-doc"></div></details>
+    <p id="upload-error" class="error-box hidden" role="alert"></p>
+    <div class="form-actions">
+     <button id="preview-standard" type="button" class="btn btn--outline"><svg class="icon"><use href="#i-eye"/></svg>预览生效标准</button>
+     <button id="submit-btn" class="btn btn--primary btn--lg" type="submit">开始评审</button>
+    </div>
+   </form>
+  </div>
+  <div class="card tasks-card">
+   <div class="card__header"><h2 class="card__title">任务列表</h2><button class="btn btn--ghost btn--sm" id="refresh-tasks"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button></div>
+   <div class="card__body card__body--flush" id="task-list"><div class="skeleton-list"><span></span><span></span></div></div>
+  </div>
+ </div>
+</section>
+
+<section id="page-history" class="page hidden">
+ <div class="page-header"><div><h1 class="page-title">评审历史</h1><p class="page-desc">当前账号的全部论文评审记录。</p></div></div>
+ <div class="card">
+  <div class="card__header card__header--tools">
+   <div class="history-tools">
+    <label class="search-field"><svg class="icon"><use href="#i-search"/></svg><input id="history-search" type="search" placeholder="搜索论文标题、文件名或专业" aria-label="搜索论文或专业"></label>
+    <select id="history-degree" aria-label="按学位筛选"><option value="">全部学位</option></select>
+    <select id="history-grade" aria-label="按等级筛选"><option value="">全部等级</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select>
+    <select id="history-sort" aria-label="排序方式"><option value="time">按时间（新→旧）</option><option value="score-desc">按分数（高→低）</option><option value="score-asc">按分数（低→高）</option></select>
+    <button id="refresh-history-btn" class="btn btn--ghost btn--sm"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+   </div>
+  </div>
+  <div class="card__body card__body--flush" id="archive-list"><div class="skeleton-list"><span></span><span></span><span></span></div></div>
+ </div>
+</section>
+
+<section id="page-profile" class="page hidden">
+ <div class="page-header"><div><h1 class="page-title">个人中心</h1><p class="page-desc">管理账号信息与登录密码。</p></div></div>
+ <div class="profile-stack">
+  <div class="card">
+   <div class="card__header"><h2 class="card__title">账号信息</h2></div>
+   <div class="card__body">
+    <div class="profile-field"><span class="profile-field__label">用户名</span><span id="profile-username"></span></div>
+    <div class="profile-field"><span class="profile-field__label">联系电话</span><span id="profile-phone"></span></div>
+    <div class="profile-field"><span class="profile-field__label">注册时间</span><span id="profile-created"></span></div>
+   </div>
+  </div>
+  <div class="card">
+   <div class="card__header"><h2 class="card__title">修改密码</h2></div>
+   <div class="card__body">
+    <form id="password-form" class="stack-form">
+     <label class="field" for="old-password"><span>当前密码</span><input id="old-password" type="password" autocomplete="current-password" maxlength="128" required></label>
+     <label class="field" for="new-password"><span>新密码</span><input id="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="至少 8 位" required></label>
+     <label class="field" for="confirm-password"><span>确认新密码</span><input id="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+     <div class="form-actions form-actions--start"><button type="submit" class="btn btn--primary">保存并重新登录</button><p id="password-message" class="field-status field-status--error" role="status"></p></div>
+    </form>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section id="page-workspace" class="page page--workspace hidden">
+ <div id="workspace-empty" class="empty-state empty-state--page hidden"><svg class="icon"><use href="#i-workspace"/></svg><strong>还没有打开评审记录</strong><span>从评审历史中选择一条记录，或上传论文开始新的评审。</span><span class="empty-state__actions"><button class="btn btn--outline btn--sm" data-page="history">查看评审历史</button><button class="btn btn--primary btn--sm" data-page="review">新建评审</button></span></div>
+ <div class="paper-heading">
+  <div class="paper-heading__main">
+   <div class="crumbs"><span>评审工作台</span></div>
+   <h1>评审工作台</h1>
+   <div class="paper-meta"><span class="skeleton-text"></span></div>
+  </div>
+  <div class="heading-actions">
+   <label class="model-picker" for="review-model"><span>评审模型</span><select id="review-model"><option value="">正在加载模型…</option></select></label>
+   <span id="model-status" class="field-status" role="status"></span>
+   <button id="export" class="btn btn--outline"><svg class="icon"><use href="#i-download"/></svg>下载 PDF</button>
+   <button id="rerun-top" class="btn btn--primary"><svg class="icon"><use href="#i-refresh"/></svg>重新评审</button>
+  </div>
+ </div>
+
+ <section id="run-overview" class="card run-overview"><div class="card__body"><div class="skeleton-list"><span></span><span></span></div></div></section>
+
+ <details class="card rerun-settings">
+  <summary><span>重评参数与系统标准</span><small>默认继承本次参数；重新评审会生成新记录，旧结果保留</small></summary>
+  <div class="card__body">
+   <div id="rerun-metadata" class="metadata-grid"></div>
+   <div class="form-actions form-actions--start">
+    <button id="preview-rerun-standard" class="btn btn--outline btn--sm" type="button"><svg class="icon"><use href="#i-eye"/></svg>预览当前参数对应标准</button>
+    <button id="upload-revision" class="btn btn--outline btn--sm" type="button"><svg class="icon"><use href="#i-upload"/></svg>上传此论文的修订稿</button>
+   </div>
+   <details id="rerun-preview" class="preview-box hidden"><summary>生效标准与提示词</summary><div id="rerun-preview-text" class="preview-doc"></div></details>
+  </div>
+ </details>
+
+ <div class="pane-switch" role="tablist" aria-label="切换视图">
+  <button type="button" data-pane="pdf" role="tab" aria-selected="false">论文原文</button>
+  <button type="button" data-pane="review" class="active" role="tab" aria-selected="true">评审意见</button>
+ </div>
+
+ <div class="split-layout">
+  <section class="pdf-pane" aria-label="论文原文">
+   <div class="pane-header"><strong><svg class="icon"><use href="#i-file"/></svg>论文原文</strong><a href="#" target="_blank" rel="noopener">在新窗口打开<svg class="icon"><use href="#i-external"/></svg></a></div>
+   <div class="pdf-toolbar">
+    <label class="page-indicator" for="page-jump" title="输入页码后回车跳转"><input id="page-jump" type="text" inputmode="numeric" autocomplete="off" aria-label="跳转到页码" value="1"><span>/ <b id="page-total">–</b> 页</span><b id="page-current" hidden>–</b></label>
+    <span class="toolbar-group">
+     <button id="zoom-out" class="icon-btn" aria-label="缩小"><svg class="icon"><use href="#i-minus"/></svg></button>
+     <span id="zoom-label">100%</span>
+     <button id="zoom-in" class="icon-btn" aria-label="放大"><svg class="icon"><use href="#i-plus"/></svg></button>
+     <button id="fit-page" class="btn btn--ghost btn--sm">适应宽度</button>
+    </span>
+    <label class="highlight-toggle switch"><input id="highlight-toggle" type="checkbox" checked><span class="switch__track"></span>证据高亮</label>
+   </div>
+   <div class="pdf-scroll" id="pdf-scroll"><div id="pdf-pages" class="pdf-pages"></div></div>
+   <div class="pdf-footer"><span id="page-chapter"></span><span><b class="yellow-dot"></b>点击高亮框可定位对应意见</span></div>
+  </section>
+
+  <section class="review-pane">
+   <div class="workspace-toolbar">
+    <nav class="tabs" aria-label="工作台视图">
+     <button class="active" data-tab="results">评审意见 <span id="issue-total">0</span></button>
+     <button data-tab="prompts">评审重点 <span>6</span></button>
+     <button data-tab="history">运行记录 <span id="run-total">0</span></button>
+    </nav>
+    <div class="run-info"><span id="current-run-label"></span></div>
+   </div>
+
+   <div id="results-view" class="view">
+    <div class="review-summary">
+     <div class="summary-stats">
+      <div><strong id="count-issues">0</strong><span>全部意见</span></div>
+      <div class="is-major"><strong id="count-major">0</strong><span>重点关注</span></div>
+      <div class="is-minor"><strong id="count-minor">0</strong><span>改进建议</span></div>
+      <div class="is-positive"><strong id="count-positive">0</strong><span>值得肯定</span></div>
+     </div>
+    </div>
+    <div class="filter-row">
+     <div class="filter-chips" id="dimension-filters"></div>
+     <select id="severity-filter" aria-label="筛选意见级别"><option value="all">所有级别</option><option value="major">重点关注</option><option value="minor">改进建议</option><option value="positive">值得肯定</option></select>
+    </div>
+    <div class="results-scroll" id="issue-list"></div>
+    <div class="panel-footnote"><span>点击证据跳转原文，点击高亮框定位意见</span><span class="kbd-hint"><kbd>J</kbd><kbd>K</kbd> 切换意见 · <kbd>Esc</kbd> 取消选中</span></div>
+   </div>
+
+   <div id="prompts-view" class="view hidden">
+    <div class="view-scroll">
+     <div class="view-heading"><h2>评审重点配置</h2><p>系统标准由学位、学科和完成年月决定；这里编辑的是各维度的补充重点，不会覆盖系统评分与证据规则。</p></div>
+     <div class="prompt-dimensions" id="prompt-dimensions"></div>
+     <div class="prompt-editor">
+      <div class="editor-heading"><strong id="prompt-title"></strong><select id="version-select" aria-label="提示词版本"></select></div>
+      <div id="prompt-meta" class="muted"></div>
+      <label for="prompt-text" class="field-label">我的补充重点 <span id="dirty-badge"></span></label>
+      <textarea id="prompt-text" spellcheck="false" maxlength="20000"></textarea>
+      <div class="textarea-foot"><span class="kbd-hint"><kbd>⌘</kbd><kbd>S</kbd> / <kbd>Ctrl</kbd><kbd>S</kbd> 保存</span><span id="prompt-count">0 / 20000</span></div>
+      <label for="version-note" class="field-label">版本说明</label>
+      <input id="version-note" maxlength="500" placeholder="例如：加强证据约束，减少泛泛而谈的意见">
+      <div class="prompt-actions"><span id="prompt-status" role="status"></span><button id="restore" class="btn btn--outline btn--sm">载入最新版本</button><button id="save-prompt" class="btn btn--primary btn--sm">保存为新版本</button></div>
+      <div class="prompt-tip">当前运行使用 <strong id="used-version"></strong>。修改补充重点不会改变旧结果；重新评审使用各维度最新保存的版本。</div>
+      <div class="rerun-row"><select id="rerun-scope" aria-label="重新评审范围"><option value="all">重评全部六个维度</option></select><button id="rerun-prompt" class="btn btn--primary btn--sm"><svg class="icon"><use href="#i-refresh"/></svg>重新评审</button></div>
+     </div>
+    </div>
+   </div>
+
+   <div id="history-view" class="view hidden">
+    <div class="view-scroll">
+     <div class="view-heading"><h2>运行记录</h2><p>查看本次运行使用的模型与各维度评审重点快照。</p></div>
+     <div id="history-list" class="history-list"></div>
+    </div>
+   </div>
+  </section>
+ </div>
+</section>
+</main>
+</div>
+
+<div id="top-progress" class="top-progress" aria-hidden="true"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="run-overlay" class="run-overlay hidden" role="status" aria-live="polite">
+ <div class="run-modal">
+  <div class="run-modal__head"><span class="loader"></span><strong>正在重新评审</strong></div>
+  <p id="run-step">正在提交评审任务…</p>
+  <div class="progress-track"><div id="run-progress"></div></div>
+  <small>评审在后台进行，可以继续浏览其他内容。</small>
+ </div>
+</div>
+<script src="/js/app.js"></script>
+<script src="/js/review-settings.js"></script>
+<script src="/js/portal.js"></script>
+</body>
+</html>

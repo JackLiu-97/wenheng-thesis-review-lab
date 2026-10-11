@@ -2,9 +2,9 @@
 
 ## Node 与依赖
 
-平台运行在 Node.js 24。npm 脚本通过 scripts/run.mjs 选择 REVIEW_NODE_BIN、当前 Node 或 Codex 独立 Node 24 运行时，不修改全局 Node 安装。当前开发环境使用 Codex 提供的 Node 24.19.0。新机器应先安装 Node 24，再执行：
+平台运行在 Node.js 24。npm 脚本通过 scripts/run.mjs 选择 REVIEW_NODE_BIN、当前 Node 或 Codex 独立 Node 24 运行时，不修改全局 Node 安装。本机使用 nvm 安装的 Node 24。新机器应先安装 Node 24，再执行：
 
-```powershell
+```sh
 npm ci
 npx playwright install chromium
 npm run check
@@ -13,7 +13,7 @@ npm run migrate -- --dry-run
 npm start
 ```
 
-安装依赖的 npm 也应由 Node 24 运行；Windows 上旧 npm.cmd 可能固定使用其旁边的 Node，请先用 `node --version` 和 `npm version` 确认。已经安装依赖的本机可以直接 `npm start`，启动器会选择可用 Node 24。
+安装依赖的 npm 也应由 Node 24 运行；请先用 `node --version` 和 `npm version` 确认。已经安装依赖的本机可以直接 `npm start`，启动器会选择可用 Node 24。
 
 页面仍为 http://127.0.0.1:4173/。保留原账号密码；首次升级会安全迁移旧 JSON。详细表结构、备份和恢复见 [数据库说明](database.md)。
 
@@ -27,9 +27,9 @@ npm start
 
 ## 报告和验证命令
 
-```powershell
+```sh
 npm run reports:samples
-uv run --project E:\Codex-env python scripts/verify_reports.py
+uv run python scripts/verify_reports.py
 npm run reports:generate -- --database data/review.sqlite3 --run <记录ID>
 ```
 
@@ -39,7 +39,7 @@ npm run reports:generate -- --database data/review.sqlite3 --run <记录ID>
 
 真实服务检查只使用虚构论文，运行于独立数据目录：
 
-```powershell
+```sh
 npm run audit:live -- --run-live
 ```
 
@@ -51,5 +51,5 @@ npm run audit:live -- --run-live
 - 新任务必须有完整背景参数。旧记录重评前需要补齐参数。
 - 参数、评分和标准均由服务端再次验证，页面限制不是唯一约束。
 - 学科大类是平台分类；没有学校专属模板、外部文献检索或自动分章长文评审。
-- MinerU 解压和页面渲染依然依赖当前 Windows/PowerShell 与 Poppler 环境。
+- MinerU 解压依赖系统 `unzip`，页面渲染依赖 Poppler。本机组件在 `runtime/macos/poppler/`；该目录被 Git 忽略，新机器需另行安装或配置 Poppler。
 - 模型结果具有随机性；标准测试和固定响应测试验证的是规则与流程，不证明自动评分等价于人类评委判断。

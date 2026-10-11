@@ -62,11 +62,13 @@ flowchart LR
 
 ## 快速开始
 
+**本机 macOS 已配置**：双击 `START-MACOS.command` 启动并自动打开浏览器；详情见 [Mac 使用说明](docs/setup-macos.md)。原账号和历史数据保留。
+
 ### 1. 准备环境
 
 | 依赖 | 用途 |
 | --- | --- |
-| Windows / PowerShell | 当前 MinerU 结果解包使用 `powershell.exe` |
+| macOS（Apple Silicon） | 当前适配平台；MinerU 结果解包使用系统 `unzip` |
 | Node.js 24 与 npm | SQLite 驱动、HTTP 服务和测试；启动器可使用本机独立 Node 24 |
 | Playwright Chromium | 服务端 PDF 生成及浏览器流程测试 |
 | MinerU 凭据 | 上传新论文后的云端解析 |
@@ -74,20 +76,18 @@ flowchart LR
 | Codex CLI | 使用 GPT 评审路径时需要；仅使用 DeepSeek 时不需要 |
 | Poppler 的 `pdftoppm` | 将 PDF 页面渲染为工作台图片 |
 
-Python 仅用于可选的数据导出与示例生成工具，平台启动不依赖 Python。完整解析和页面渲染流程目前面向 Windows。
+Python 仅用于可选的数据导出与示例生成工具，平台启动不依赖 Python。本机使用 `runtime/macos/poppler/` 中的 Poppler，该目录不上传 Git。从仓库获取项目后，需自行安装 Poppler（如 `brew install poppler`），或在 `.env` 中设置 `PDFTOPPM_BIN` 指向已有程序。
 
 ### 2. 安装并配置
 
 获取仓库后，在项目根目录运行：
 
-```powershell
+```sh
 npm ci
 npx playwright install chromium
 
 # 仅在本地配置不存在时创建，避免覆盖已有凭据。
-if (-not (Test-Path -LiteralPath .env)) {
-    Copy-Item -LiteralPath .env.example -Destination .env
-}
+[ -f .env ] || cp .env.example .env
 ```
 
 编辑 `.env`，填写 `MINERU_TOKEN`，并配置至少一条模型路径：
@@ -103,7 +103,7 @@ if (-not (Test-Path -LiteralPath .env)) {
 
 ### 3. 启动与首次使用
 
-```powershell
+```sh
 npm start
 ```
 
@@ -161,7 +161,7 @@ wenheng-thesis-review-lab/
 
 ## 开发与验证
 
-```powershell
+```sh
 # 检查前后端 JavaScript 语法
 npm run check
 
@@ -173,7 +173,7 @@ npm test
 
 需要验证真实模型链路时，先按 [辅助工具说明](docs/tools.md) 生成虚构示例论文，再显式执行：
 
-```powershell
+```sh
 npm run audit:live -- --run-live
 ```
 
@@ -192,7 +192,6 @@ npm run audit:live -- --run-live
 - [升级与验收](docs/upgrade.md)：运行时、PDF、重试、样例和验收流程。
 - [数据库结构](docs/database.md)：表、外键、JSON 迁移及备份恢复。
 - [本次验收记录](docs/verification.md)：实际迁移、66 项测试、真实模型核查、PDF 和备份验证结果。
-- [Windows 迁移说明](docs/transfer-windows.md)：便携包启动、数据库路径修复和新电脑恢复步骤。
 - [评审标准](docs/review-standards.md)：学位差异、维度细则、评分与建议。
 
 - [配置说明](docs/configuration.md)：模型、解析服务、端口与本地数据目录。

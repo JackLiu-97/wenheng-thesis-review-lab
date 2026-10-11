@@ -8,4 +8,4 @@
 *.md text eol=lf
 *.example text eol=lf
 *.sql text eol=lf
-*.cmd text eol=crlf
+*.command text eol=lf

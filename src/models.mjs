@@ -59,7 +59,7 @@ async function codexReview(prompt,dir,config,schema){
   await fs.writeFile(path.join(home,'config.toml'),cfg);const schemaPath=path.join(home,'schema.json'),out=path.join(home,'result.json');await fs.writeFile(schemaPath,JSON.stringify(schema));
   const cli=process.env.REVIEW_CODEX_BIN||process.env.CODEX_CLI_PATH||'codex';
   await new Promise((resolve,reject)=>{
-   const p=spawn(cli,['exec','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--color','never','--output-schema',schemaPath,'--output-last-message',out,'-m',config.model,'-'],{cwd:dir,env:{...process.env,CODEX_HOME:home},windowsHide:true});
+   const p=spawn(cli,['exec','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--color','never','--output-schema',schemaPath,'--output-last-message',out,'-m',config.model,'-'],{cwd:dir,env:{...process.env,CODEX_HOME:home}});
    let err='';const timeout=setTimeout(()=>{p.kill();reject(Object.assign(Error('GPT 调用超时'),{name:'TimeoutError'}));},1800000);
    p.stderr.on('data',d=>{err=(err+d.toString()).slice(-3000);});p.stdout.resume();p.stdin.on('error',()=>{});
    p.on('error',error=>{clearTimeout(timeout);reject(Object.assign(Error('GPT CLI 无法启动，请检查 REVIEW_CODEX_BIN'),{code:error.code}));});

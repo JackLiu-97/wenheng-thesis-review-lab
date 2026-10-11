@@ -46,7 +46,7 @@ erDiagram
 
 ## 旧数据迁移
 
-```powershell
+```sh
 npm run migrate -- --dry-run
 npm run migrate
 ```
@@ -59,7 +59,7 @@ npm run migrate
 
 ## 备份与恢复
 
-```powershell
+```sh
 npm run backup -- --database data/review.sqlite3 --target local/backup-20261011
 ```
 

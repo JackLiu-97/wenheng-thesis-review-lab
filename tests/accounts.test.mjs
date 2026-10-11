@@ -18,7 +18,7 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
  await fs.writeFile(path.join(data,'runs','legacy-run','paper.pdf'),'%PDF-1.4 test');
  await fs.writeFile(path.join(data,'runs','legacy-run','page-1.png'),Buffer.from([137,80,78,71]));
  await fs.writeFile(path.join(data,'store.json'),JSON.stringify(original));
- const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,windowsHide:true,env:{...process.env,REVIEW_SKIP_ENV:'1',REVIEW_DATA_DIR:data,REVIEW_PORT:'0',CODEX_API_KEY:'fake-test-key',CODEX_BASE_URL:'https://example.invalid',REVIEW_CODEX_MODEL:'test',REVIEW_CODEX_BIN:path.join(data,'missing-cli.exe'),DEEPSEEK_API_KEY:'',MINERU_TOKEN:'fake-parser-key'}});
+ const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,REVIEW_SKIP_ENV:'1',REVIEW_DATA_DIR:data,REVIEW_PORT:'0',CODEX_API_KEY:'fake-test-key',CODEX_BASE_URL:'https://example.invalid',REVIEW_CODEX_MODEL:'test',REVIEW_CODEX_BIN:path.join(data,'missing-cli'),DEEPSEEK_API_KEY:'',MINERU_TOKEN:'fake-parser-key'}});
  let stderr='';child.stderr.on('data',d=>stderr+=d);
  const base=await new Promise((resolve,reject)=>{let output='';child.stdout.on('data',d=>{output+=d;const m=output.match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});child.on('error',reject);child.on('exit',code=>reject(Error('Server exited '+code+stderr)));});
  function client(){let cookie='';return async(url,options={})=>{
@@ -34,7 +34,7 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
   assert.equal((await anonymous('/login.html')).status,200);
   assert.equal((await anonymous('/.env')).status,404);
   // Every relocated browser asset must be served; private directories stay inaccessible.
-  for(const url of ['/login.html','/register.html','/js/app.js','/js/auth.js','/js/portal.js','/css/style.css','/css/theme.css','/css/portal.css']){
+  for(const url of ['/login.html','/register.html','/js/app.js','/js/auth.js','/js/portal.js','/css/theme.css']){
    const response=await anonymous(url);assert.equal(response.status,200,url);
    const type=url.endsWith('.js')?'text/javascript':url.endsWith('.css')?'text/css':'text/html';
    assert(response.headers.get('content-type').startsWith(type),url);

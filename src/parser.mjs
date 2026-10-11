@@ -41,8 +41,7 @@ export async function parseMineru(pdfPath,target){
  const archive=await fetchChecked(result.full_zip_url,{},'MinerU 结果下载失败');
  const zipPath=path.join(target,'mineru.zip');await fsp.writeFile(zipPath,Buffer.from(await archive.arrayBuffer()));
  const unpack=path.join(target,'mineru');await fsp.mkdir(unpack,{recursive:true});
- const quote=s=>s.replaceAll("'","''");
- await exec('powershell.exe',['-NoProfile','-NonInteractive','-Command',`Expand-Archive -LiteralPath '${quote(zipPath)}' -DestinationPath '${quote(unpack)}' -Force`],{windowsHide:true,timeout:120000});
+ await exec('unzip',['-o','-q',zipPath,'-d',unpack],{timeout:120000});
  let contentList=null,markdown=null,layoutFile=null;
  async function walk(dir){for(const entry of await fsp.readdir(dir,{withFileTypes:true})){const file=path.join(dir,entry.name);if(entry.isDirectory())await walk(file);else if(entry.name.endsWith('_content_list.json')||entry.name==='content_list.json')contentList??=file;else if(entry.name==='layout.json'||entry.name.endsWith('_middle.json'))layoutFile??=file;else if(entry.name.endsWith('.md'))markdown??=file;}}
  await walk(unpack);

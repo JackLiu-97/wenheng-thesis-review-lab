@@ -41,7 +41,7 @@ test('real HTTP upload, two model stages, browser workflow and PDF download',{ti
   }
   res.statusCode=404;res.end();
  });mock.listen(0,'127.0.0.1');await once(mock,'listening');mockBase='http://127.0.0.1:'+mock.address().port;
- const server=spawn(process.execPath,['src/server.mjs'],{cwd:root,windowsHide:true,env:{...process.env,REVIEW_SKIP_ENV:'1',REVIEW_DATA_DIR:data,REVIEW_DATABASE_PATH:path.join(data,'review.sqlite3'),REVIEW_PORT:'0',MINERU_TOKEN:'fixture-parser',MINERU_API_BASE:mockBase+'/api/v4',CODEX_API_KEY:'',REVIEW_CODEX_MODEL:'gpt-6.1-sol',DEEPSEEK_API_KEY:'fixture-model',DEEPSEEK_MODEL:'',DEEPSEEK_FLASH_MODEL:'deepseek-flash',DEEPSEEK_PRO_MODEL:'deepseek-v4-pro',DEEPSEEK_BASE_URL:mockBase}});
+ const server=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,REVIEW_SKIP_ENV:'1',REVIEW_DATA_DIR:data,REVIEW_DATABASE_PATH:path.join(data,'review.sqlite3'),REVIEW_PORT:'0',MINERU_TOKEN:'fixture-parser',MINERU_API_BASE:mockBase+'/api/v4',CODEX_API_KEY:'',REVIEW_CODEX_MODEL:'gpt-6.1-sol',DEEPSEEK_API_KEY:'fixture-model',DEEPSEEK_MODEL:'',DEEPSEEK_FLASH_MODEL:'deepseek-flash',DEEPSEEK_PRO_MODEL:'deepseek-v4-pro',DEEPSEEK_BASE_URL:mockBase}});
  let diagnostics='';server.stderr.on('data',b=>diagnostics+=b);let browser;
  try{
   const base=await new Promise((resolve,reject)=>{let text='';server.stdout.on('data',b=>{text+=b;const match=text.match(/http:\/\/127.0.0.1:\d+/);if(match)resolve(match[0]);});server.on('error',reject);server.on('exit',()=>reject(Error(diagnostics)));});
@@ -75,7 +75,9 @@ test('real HTTP upload, two model stages, browser workflow and PDF download',{ti
   await page.goto(base+'/#workspace/'+run.id);await page.waitForFunction(()=>document.querySelector('#review-model').value==='deepseek-flash');
   await fs.writeFile(path.join(output,'verification.json'),JSON.stringify({checks:['upload form','standard preview','real HTTP parser protocol','two model stages','persisted score','desktop/mobile browser','PDF download idempotence'],model:'fixed local response; no external services',score:run.total_score,browser_errors:errors},null,2));
  }finally{
-  if(browser)await browser.close();server.kill();if(server.exitCode===null)await once(server,'exit');await new Promise(resolve=>mock.close(resolve));
+  // Playwright can consume SIGTERM while the second report is rendering on macOS.
+  // SIGINT closes its browser and exits the server, matching a terminal Control+C.
+  if(browser)await browser.close();server.kill('SIGINT');if(server.exitCode===null&&server.signalCode===null)await once(server,'exit');await new Promise(resolve=>mock.close(resolve));
   assert(path.dirname(path.resolve(data))===path.resolve(os.tmpdir())&&path.basename(data).startsWith('review-http-v2-'));await fs.rm(data,{recursive:true,force:true});
  }
 });

@@ -8,19 +8,20 @@ export function relocateDatabase(filename,originalRoot,targetRoot){
  try{
   db.pragma('foreign_keys = ON');db.pragma('busy_timeout = 5000');
   const hasMeta=db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_meta'").get();
-  if(!hasMeta)throw Error('迁移包数据库缺少版本元数据');
+  if(!hasMeta)throw Error('数据库缺少版本元数据');
   const sourceRoot=db.prepare("SELECT value FROM app_meta WHERE key='portable_root'").get()?.value||originalRoot;
+  const sourcePath=/^(?:[A-Za-z]:[\\/]|\\\\)/.test(sourceRoot)?path.win32:path.posix;
   const changes=[];const missing=[];
   for(const [table,columns] of Object.entries(pathColumns))for(const column of columns){
    for(const row of db.prepare(`SELECT id,${column} value FROM ${table} WHERE ${column} IS NOT NULL`).all()){
-    const relative=path.win32.relative(sourceRoot,row.value);
-    if(relative==='..'||relative.startsWith('..\\')||path.win32.isAbsolute(relative))throw Error(`数据库文件引用位于迁移根目录之外：${table}.${column} / ${row.id}`);
-    const next=path.resolve(targetRoot,...relative.split('\\'));
+    const relative=sourcePath.relative(sourceRoot,row.value);
+    if(relative==='..'||relative.startsWith('..'+sourcePath.sep)||sourcePath.isAbsolute(relative))throw Error(`数据库文件引用位于迁移根目录之外：${table}.${column} / ${row.id}`);
+    const next=path.resolve(targetRoot,...relative.split(sourcePath.sep));
     if(!fs.existsSync(next))missing.push({table,column,id:row.id,path:next});
     if(next!==row.value)changes.push({table,column,id:row.id,next});
    }
   }
-  if(missing.length)throw Error(`迁移包缺少 ${missing.length} 个关联文件；首项：${missing[0].path}`);
+  if(missing.length)throw Error(`数据目录缺少 ${missing.length} 个关联文件；首项：${missing[0].path}`);
   db.transaction(()=>{
    for(const {table,column,id,next} of changes)db.prepare(`UPDATE ${table} SET ${column}=? WHERE id=?`).run(next,id);
    db.prepare("INSERT INTO app_meta(key,value) VALUES('portable_root',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(targetRoot);

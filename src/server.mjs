@@ -25,7 +25,7 @@ const repo=openDatabase(dbPath);repo.seedStandard();
 const reports=createReportService(repo,dataDir),engine=createReviewEngine(repo,dataDir,reports),auth=createAuth({repo});
 const execFileAsync=promisify(execFile);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.pdf':'application/pdf'};
-const publicFiles=new Set(['/login.html','/register.html','/js/auth.js','/css/theme.css','/css/portal.css','/index.html','/js/portal.js','/js/app.js','/js/review-settings.js','/css/style.css']);
+const publicFiles=new Set(['/login.html','/register.html','/js/auth.js','/css/theme.css','/index.html','/js/portal.js','/js/app.js','/js/review-settings.js']);
 const send=(res,status,payload)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(payload));};
 const fail=(status,message)=>Object.assign(Error(message),{status});
 const safeName=name=>path.basename(name||'paper.pdf').replace(/[^\w\-.\u4e00-\u9fff ]/g,'_');
@@ -115,7 +115,7 @@ async function handler(req,res){
    if(parts.length===6&&parts[4]==='pages'&&/^\d+\.png$/.test(parts[5])){
     const page=Number(parts[5].replace('.png',''));if(page<1||page>run.page_count)throw fail(404,'页码不存在');
     const folder=path.dirname(version.storage_path),cache=path.join(folder,`page-${page}.png`);
-    if(!fs.existsSync(cache))await execFileAsync(process.env.PDFTOPPM_BIN||'pdftoppm',['-f',String(page),'-l',String(page),'-singlefile','-png','-r','120',version.storage_path,path.join(folder,`page-${page}`)],{windowsHide:true});
+    if(!fs.existsSync(cache))await execFileAsync(process.env.PDFTOPPM_BIN||'pdftoppm',['-f',String(page),'-l',String(page),'-singlefile','-png','-r','120',version.storage_path,path.join(folder,`page-${page}`)]);
     await sendFile(res,cache,'image/png');return;
    }
    throw fail(404,'资源不存在');
