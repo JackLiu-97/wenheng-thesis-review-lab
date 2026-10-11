@@ -1,0 +1,18 @@
+{
+  "name": "wenheng-thesis-review-lab",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "check": "node --check src/server.mjs && node --check src/auth.mjs && node --check src/prompts.mjs && node --check public/js/app.js && node --check public/js/auth.js && node --check public/js/portal.js",
+    "test": "node --test tests/prompts.test.mjs tests/accounts.test.mjs tests/frontend.test.mjs",
+    "audit:live": "node scripts/audit-live.mjs"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.12"
+  },
+  "description": "文衡谱元团队内部使用的硕博学位论文评审实验平台",
+  "engines": {
+    "node": ">=20.12.0"
+  }
+}

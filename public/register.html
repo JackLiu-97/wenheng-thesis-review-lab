@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册 - 文衡 · 学位论文评审实验平台</title>
+    <meta name="description" content="文衡 · 学位论文评审实验平台 - 注册新账户">
+    <link rel="stylesheet" href="/css/theme.css">
+    <link rel="stylesheet" href="/css/portal.css">
+</head>
+<body class="auth-page">
+    <main class="auth-layout">
+
+        <!-- Left: Brand Visual -->
+        <section class="auth-visual" aria-hidden="true">
+            <div class="auth-visual__brand">
+                <h1 class="auth-visual__name">文衡</h1>
+                <p class="auth-visual__tagline"><em>学位论文</em>评审实验平台</p>
+                <p class="auth-visual__subtitle">文衡谱元 · 团队内部测试</p>
+            </div>
+            <div class="auth-visual__stage">
+                <span class="auth-visual__halo auth-visual__halo--one"></span>
+                <span class="auth-visual__halo auth-visual__halo--two"></span>
+                <span class="auth-visual__halo auth-visual__halo--three"></span>
+                <span class="auth-visual__grid"></span>
+                <span class="auth-visual__line auth-visual__line--x"></span>
+                <span class="auth-visual__line auth-visual__line--y"></span>
+                <span class="auth-visual__line auth-visual__line--x2"></span>
+                <span class="auth-visual__line auth-visual__line--y2"></span>
+            </div>
+        </section>
+
+        <!-- Right: Register Form -->
+        <section class="auth-side">
+            <section class="auth-panel">
+                <div class="auth-panel__header">
+                    <p class="auth-panel__eyebrow">Create Account</p>
+                    <h2 class="auth-panel__title">注册</h2>
+                    <p class="auth-panel__desc">创建文衡账户，参与团队内部评审测试。</p>
+                </div>
+
+                <nav class="auth-switcher" aria-label="认证导航">
+                    <a class="auth-switcher__item" href="login.html">登录</a>
+                    <a class="auth-switcher__item auth-switcher__item--active" href="register.html">注册</a>
+                </nav>
+
+                <form id="register-form" class="auth-form">
+                    <div class="auth-field">
+                        <label class="auth-field__label" for="reg-username">用户名</label>
+                        <input id="reg-username" type="text" class="auth-field__input" placeholder="3–32 位文字、数字或下划线" minlength="3" maxlength="32" autocomplete="username" required />
+                    </div>
+
+                    <div class="auth-field">
+                        <label class="auth-field__label" for="reg-phone">联系电话（选填）</label>
+                        <input id="reg-phone" type="tel" class="auth-field__input" placeholder="联系电话，可留空" maxlength="20" autocomplete="tel" />
+                    </div>
+
+                    <div class="auth-field">
+                        <label class="auth-field__label" for="reg-password">密码</label>
+                        <input id="reg-password" type="password" class="auth-field__input" placeholder="至少 8 位密码" minlength="8" maxlength="128" autocomplete="new-password" required />
+                    </div>
+
+                    <div class="auth-field"><label class="auth-field__label" for="reg-confirm">确认密码</label><input id="reg-confirm" type="password" class="auth-field__input" placeholder="再次输入密码" minlength="8" maxlength="128" autocomplete="new-password" required></div>
+                    <button type="submit" class="auth-submit auth-submit--secondary">注册 →</button>
+                    <div id="auth-message" class="hidden auth-message" role="alert"></div>
+                </form>
+
+                <p class="auth-footer">
+                    已有账号？
+                    <a href="login.html">返回登录</a>
+                </p>
+            </section>
+        </section>
+    </main>
+
+    <script src="/js/auth.js"></script>
+</body>
+</html>

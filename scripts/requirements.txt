@@ -1,0 +1,5 @@
+# Optional Python utilities; not required by the Node.js platform.
+reportlab>=4,<5
+pypdfium2>=4,<6
+Pillow>=10,<13
+psycopg[binary]>=3,<4
