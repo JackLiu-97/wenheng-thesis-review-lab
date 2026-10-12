@@ -39,6 +39,8 @@ export function createReviewEngine(repo,dataDir,reports,{parse=parseMineru,model
    await fs.mkdir(dir,{recursive:true});
    const version=repo.version(task.paper_version_id);if(!version)throw Error('提交文件不存在，请重新上传');
    let parsed=task.checkpoint?.parse_id?repo.parse(task.checkpoint.parse_id):repo.latestParse(version.id);
+   // A byte-identical PDF that was parsed before is not sent to MinerU again.
+   if(!parsed){const reusable=repo.reusableParse(version.sha256);if(reusable){parsed=repo.cloneParse(reusable.id,version.id);repo.updateTask(taskId,{stage:'parsing',message:`检测到相同 PDF（${reusable.original_filename}），已复用此前的解析结果`,progress:stageProgress('parsing',1),stage_started_at:new Date().toISOString()});}}
    if(!parsed){
     repo.updateTask(taskId,{stage:'parsing',message:'正在解析论文',progress:stageProgress('parsing',0),stage_started_at:new Date().toISOString()});
     // Persist parser sub-steps (upload, MinerU page progress, download) only when they change.

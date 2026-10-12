@@ -109,6 +109,18 @@ export class Repository{
   });
  }
  parse(parseId){const row=this.db.prepare('SELECT * FROM parse_results WHERE id=?').get(parseId);if(!row)return null;return {...row,pageSizes:decode(row.page_sizes_json,[]),coordinateSize:decode(row.coordinate_system_json,[1000,1000]),blocks:this.db.prepare('SELECT * FROM document_blocks WHERE parse_result_id=? ORDER BY sequence_no').all(parseId).map(b=>({id:b.source_block_id,type:b.block_type,page:b.page_no,text:b.text,bbox:decode(b.bbox_json)}))};}
+ // A finished parse of a byte-identical PDF made with the current parser settings, if any.
+ reusableParse(sha256,parser='MinerU',parserVersion=process.env.MINERU_MODEL_VERSION||'vlm'){
+  if(!sha256)return null;
+  return this.db.prepare("SELECT p.id,v.original_filename FROM parse_results p JOIN paper_versions v ON v.id=p.paper_version_id WHERE v.sha256=? AND p.status='ready' AND p.parser=? AND p.parser_version IS ? AND EXISTS (SELECT 1 FROM document_blocks b WHERE b.parse_result_id=p.id) ORDER BY p.created_at DESC LIMIT 1").get(sha256,parser,parserVersion)||null;
+ }
+ // Copies a parse onto another paper version so each upload keeps its own blocks and evidence links.
+ cloneParse(sourceId,versionId){return this.transaction(()=>{
+  const source=this.db.prepare('SELECT * FROM parse_results WHERE id=?').get(sourceId);if(!source)throw fail(404,'可复用的解析结果不存在');
+  const parseId=id();this.insert('parse_results',{...source,id:parseId,paper_version_id:versionId,created_at:now()});
+  this.db.prepare("INSERT INTO document_blocks (id,parse_result_id,source_block_id,sequence_no,page_no,block_type,text,bbox_json) SELECT ?||':'||source_block_id,?,source_block_id,sequence_no,page_no,block_type,text,bbox_json FROM document_blocks WHERE parse_result_id=?").run(parseId,parseId,sourceId);
+  return this.parse(parseId);
+ });}
  latestParse(versionId){const row=this.db.prepare("SELECT id FROM parse_results WHERE paper_version_id=? AND status='ready' ORDER BY created_at DESC LIMIT 1").get(versionId);return row?this.parse(row.id):null;}
  attempt(taskId,stage,inputPath){const n=this.db.prepare('SELECT coalesce(max(attempt_no),0)+1 n FROM review_attempts WHERE task_id=? AND stage=?').get(taskId,stage).n;const row={id:id(),task_id:taskId,stage,attempt_no:n,status:'running',input_path:inputPath,output_path:null,error:null,started_at:now(),finished_at:null};this.insert('review_attempts',row);this.logEvent(taskId,stage,'info',`${stageNames[stage]||stage}：第 ${n} 次模型调用开始`);return row;}
  finishAttempt(attemptId,status,outputPath,error=null){this.db.prepare('UPDATE review_attempts SET status=?,output_path=?,error=?,finished_at=? WHERE id=?').run(status,outputPath,error,now(),attemptId);

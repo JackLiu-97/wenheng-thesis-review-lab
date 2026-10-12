@@ -69,3 +69,19 @@ test('report failure is isolated; generating and ready report requests are idemp
   await fs.unlink(path.join(f.dir,'result.pdf'));await reports.request(f.task.id);assert.equal(count,3,'Missing file should regenerate without model calls');
  }finally{await f.cleanup();}
 });
+test('a byte-identical PDF reuses the earlier parse instead of calling the parser again',async()=>{
+ const f=await fixtureRepo();let parses=0;try{
+  const engine=createReviewEngine(f.repo,f.dir,{request:async()=>{}},{parse:async()=>{parses++;return {blocks,pageSizes:[]};},model:async(_p,dir,_c,schema)=>schema.properties.dimensions?detailedFixture():synthesisFixture(validateDetailed(detailedFixture(),blocks,f.request,path.basename(dir)))});
+  await engine.enqueue(f.task.id);assert.equal(f.repo.task(f.task.id).status,'succeeded');
+  // Same bytes uploaded again as a new paper, and a different file.
+  const same=f.repo.createVersion({owner:f.user.id,filename:'copy.pdf',storagePath:f.version.storage_path,metadata:f.request.metadata,bytes:Buffer.from('%PDF-1.4 fake')});
+  const other=f.repo.createVersion({owner:f.user.id,filename:'other.pdf',storagePath:f.version.storage_path,metadata:f.request.metadata,bytes:Buffer.from('%PDF-1.4 different')});
+  const again=f.repo.createTask({id:'same-file',owner_id:f.user.id,paper_version_id:same.id,provider:'gpt',model:'fixture-model',request:f.request});
+  await engine.enqueue(again.id);assert.equal(f.repo.task(again.id).status,'succeeded');assert.equal(parses,1);
+  const run=f.repo.run(f.repo.task(again.id).run_id);assert.equal(run.paper_version_id,same.id);assert.equal(run.blocks.length,blocks.length);
+  assert(f.repo.taskLog(again.id).some(e=>e.message.includes('已复用此前的解析结果')));
+  assert.notEqual(f.repo.latestParse(same.id).id,f.repo.latestParse(f.version.id).id);
+  const different=f.repo.createTask({id:'other-file',owner_id:f.user.id,paper_version_id:other.id,provider:'gpt',model:'fixture-model',request:f.request});
+  await engine.enqueue(different.id);assert.equal(parses,2);
+ }finally{await f.cleanup();}
+});
