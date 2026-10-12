@@ -11,8 +11,9 @@ import {openDatabase} from './database.mjs';
 import {migrateLegacy} from './migration.mjs';
 import {standard,validateMetadata,reviewOptions} from './standards.mjs';
 import {buildPrompt,promptTemplateVersion} from './prompts.mjs';
+import {complianceVersion} from './compliance.mjs';
 import {modelOptions,modelConfig,safeError} from './models.mjs';
-import {createReportService,reportHtml} from './reports.mjs';
+import {createReportService,reportHtml,reportTemplateVersion} from './reports.mjs';
 import {createReviewEngine} from './review-engine.mjs';
 import {liveProgress} from './progress.mjs';
 
@@ -42,7 +43,7 @@ function promptSnapshots(owner,versions){
  if(!Array.isArray(versions)||versions.length!==all.length)throw fail(400,'提示词版本参数无效');
  return all.map((list,i)=>{const chosen=versions[i]==null?list.at(-1):list.find(v=>v.version===versions[i]);if(!chosen)throw fail(400,`所选提示词版本不存在：第 ${i+1} 维度 v${versions[i]}`);if(chosen.kind!=='focus')throw fail(400,'旧版完整提示词不能直接用于评审，请选择评审提示词版本');return structuredClone(chosen);});
 }
-function snapshot(owner,metadata,config,versions=null){return {metadata,standard:structuredClone(standard),snapshots:promptSnapshots(owner,versions),prompt_template_version:promptTemplateVersion,model_config:config};}
+function snapshot(owner,metadata,config,versions=null){return {metadata,standard:structuredClone(standard),snapshots:promptSnapshots(owner,versions),prompt_template_version:promptTemplateVersion,compliance_version:complianceVersion,model_config:config};}
 
 async function handler(req,res){
  const url=new URL(req.url,'http://localhost');
@@ -63,7 +64,7 @@ async function handler(req,res){
   if(req.method==='GET'&&url.pathname==='/api/review-options')return send(res,200,{...reviewOptions(),models:modelOptions()});
   if(req.method==='POST'&&url.pathname==='/api/review-preview'){
    const input=await jsonBody(req),metadata=validateMetadata(input.metadata,input.filename),request=snapshot(user.id,metadata,null,input.prompt_versions??null);
-   return send(res,200,{metadata,standard:standard.name,weights:standard.degree_profiles[metadata.degree_type].weights,prompt:buildPrompt(request.snapshots,[],request)});
+   return send(res,200,{metadata,standard:standard.name,weights:standard.degree_profiles[metadata.degree_type].weights,prompt:buildPrompt(request.snapshots,[],request,{hideCompliance:true})});
   }
   if(req.method==='GET'&&url.pathname==='/api/prompts')return send(res,200,repo.prompts(user.id));
   if(req.method==='POST'&&/^\/api\/prompts\/\d+$/.test(url.pathname))return send(res,201,repo.appendPrompt(user.id,Number(url.pathname.split('/')[3]),await jsonBody(req)));
@@ -149,6 +150,7 @@ server.listen(Number(process.env.REVIEW_PORT||4173),'127.0.0.1',()=>{
  // Do not mark tasks interrupted until this process has successfully bound its port.
  const recovery=repo.recover();console.log('Review backend: http://127.0.0.1:'+server.address().port);
  for(const id of recovery)engine.enqueue(id);
- const pending=repo.db.prepare("SELECT run_id FROM report_files WHERE status='pending' UNION SELECT id AS run_id FROM review_runs WHERE result_schema_version>=2 AND NOT EXISTS (SELECT 1 FROM report_files WHERE run_id=review_runs.id)").all();
+ // Reports still pending, never generated, or built with an older template are (re)generated.
+ const pending=repo.db.prepare("SELECT run_id FROM report_files WHERE status='pending' UNION SELECT id AS run_id FROM review_runs WHERE result_schema_version>=2 AND NOT EXISTS (SELECT 1 FROM report_files WHERE run_id=review_runs.id AND template_version=?)").all(reportTemplateVersion);
  for(const row of pending)reports.request(row.run_id);
 });

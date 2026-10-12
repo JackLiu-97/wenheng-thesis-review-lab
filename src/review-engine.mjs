@@ -5,7 +5,7 @@ import {parseMineru} from './parser.mjs';
 import {callModel,checkContext,safeError,transient,modelConfig} from './models.mjs';
 import {buildPrompt,buildSynthesisPrompt} from './prompts.mjs';
 import {stageProgress} from './progress.mjs';
-import {detailedSchema,synthesisSchema,validateDetailed,validateSynthesis} from './review-schema.mjs';
+import {detailedSchemaFor,synthesisSchema,validateDetailed,validateSynthesis} from './review-schema.mjs';
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 export function createReviewEngine(repo,dataDir,reports,{parse=parseMineru,model=callModel,sleep=delay,currentConfig=modelConfig}={}){
@@ -52,7 +52,7 @@ export function createReviewEngine(repo,dataDir,reports,{parse=parseMineru,model
    if(!detailed){
     repo.updateTask(taskId,{stage:'reviewing',message:'模型正在进行六维度详细评审',progress:stageProgress('reviewing',0),stage_started_at:new Date().toISOString()});
     const prompt=buildPrompt(task.request.snapshots,parsed.blocks,task.request);
-    detailed=await stageCall(task,'reviewing',prompt,detailedSchema,value=>validateDetailed(value,parsed.blocks,task.request,task.id),dir);
+    detailed=await stageCall(task,'reviewing',prompt,detailedSchemaFor(task.request),value=>validateDetailed(value,parsed.blocks,task.request,task.id),dir);
     repo.updateTask(taskId,{checkpoint_json:JSON.stringify({parse_id:parsed.id,detailed})});
    }
    repo.updateTask(taskId,{stage:'synthesizing',message:'模型正在生成综合评议与修改清单',progress:stageProgress('synthesizing',0),stage_started_at:new Date().toISOString()});

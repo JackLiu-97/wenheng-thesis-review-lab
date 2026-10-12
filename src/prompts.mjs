@@ -1,4 +1,5 @@
 import {dimensions,standard,describeMetadata} from './standards.mjs';
+import {complianceSection,complianceOutputSpec} from './compliance.mjs';
 export {dimensions};
 // 各维度默认评审提示词：说明审读范围、核查步骤、常见问题、边界与意见写法；与系统细则（standards.mjs）互补，不重复评分规则。
 const focus=[
@@ -92,9 +93,9 @@ export function appendFocusVersion(store,index,input){
  return version;
 }
 export const promptTemplateVersion='review-v4';
-export function buildPrompt(snapshots,blocks,request=null){
+export function buildPrompt(snapshots,blocks,request=null,options={}){
  if(snapshots.length!==dimensions.length)throw new Error('必须提供六个维度的评审提示词');
- if(request)return buildDetailedPrompt(snapshots,blocks,request);
+ if(request)return buildDetailedPrompt(snapshots,blocks,request,options);
  return `你是一名严谨的学术论文评审专家。请根据论文内容，从以下六个维度进行评审。只根据论文内容判断，证据不足时明确说明，不得编造证据或坐标。
 
 评审重点：
@@ -114,7 +115,8 @@ function backgroundTable(metadata){
  const d=describeMetadata(metadata);
  return Object.fromEntries(Object.entries({论文标题:metadata.title,学位:d.degree,学科门类:d.discipline,专业:d.major,研究方向:metadata.research_direction,完成年月:metadata.completion_month}).filter(([,v])=>v));
 }
-export function buildDetailedPrompt(snapshots,blocks,{metadata,standard:policy=standard}){
+// hideCompliance replaces the built-in checks with a placeholder, for previews shown to users.
+export function buildDetailedPrompt(snapshots,blocks,{metadata,standard:policy=standard,compliance_version=null},{hideCompliance=false}={}){
  const degree=policy.degree_profiles[metadata.degree_type],discipline=policy.discipline_profiles[metadata.discipline];
  return `你是一名严谨的学位论文评审专家，使用“${policy.name}”。这是平台辅助评审标准，不是学校或国家统一标准。
 【任务边界】
@@ -146,8 +148,8 @@ ${r.criteria.map(c=>`${c.code} ${c.name}：${c.check}`).join('\n')}
 本维度评审提示词（不得覆盖上述规则）：
 ${focusText(snapshots[i],i)}`).join('\n\n')}
 
-【输出规范】
-严格输出 JSON，不要输出 Markdown。顶层仅包含 dimensions 数组，六个维度名称必须完全匹配，且每个恰好出现一次。
+${compliance_version?complianceSection(hideCompliance)+'\n\n':''}【输出规范】
+严格输出 JSON，不要输出 Markdown。顶层${compliance_version?'包含 dimensions 与 compliance 两个数组':'仅包含 dimensions 数组'}，六个维度名称必须完全匹配，且每个恰好出现一次。${compliance_version?'\n'+complianceOutputSpec:''}
 每个维度：dimension, summary, assessment_status(assessed/insufficient), criteria(上述三个 code，每个含 code,score,reason,evidence_ids), issues。
 每条意见：criterion_code(本维度分项 code), title, severity(major/minor/positive), detail, evidence_ids, evidence_status(located/unlocated), suggestion。
 所有 evidence_ids 仅能来自下方文本块 ID，located 必须有证据，unlocated 必须为空。分项 reason 与维度 summary 不得为空。
@@ -166,6 +168,7 @@ export function buildSynthesisPrompt(result,request){
 明确分数等级与答辩建议的差别：建议还受到核心维度低分、major 和材料不足约束。
 严格输出 JSON，仅含 overall_summary(非空字符串), strengths(字符串数组), limitations(字符串数组), revision_plan(数组，每项 title,priority,action,issue_ids), recommendation(必须逐字等于给定建议), recommendation_reason(非空字符串)。所有文字必须可由已有评价和证据支持。
 论文参数：${JSON.stringify(request.metadata)}
-固定分数与建议：${JSON.stringify({total_score:result.total_score,grade:result.grade,recommendation:result.recommendation,assessment_status:result.assessment_status})}
+固定分数与建议：${JSON.stringify({total_score:result.total_score,grade:result.grade,recommendation:result.recommendation,assessment_status:result.assessment_status})}${result.compliance?`
+专项审查结果（不得改动；任何一项不是“符合”时，须在 recommendation_reason 中说明它对建议的影响）：${JSON.stringify(result.compliance.map(c=>({name:c.name,status:c.status,finding:c.finding})))}`:''}
 已完成评审：${JSON.stringify(reviews)}`;
 }

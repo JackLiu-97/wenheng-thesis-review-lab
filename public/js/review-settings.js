@@ -62,6 +62,10 @@ function renderRunOverview(){
  const fmt=n=>n==null?'—':Number(n).toFixed(1);
  const scored=r.reviews.filter(d=>d.score!=null),lo=Math.min(...scored.map(d=>d.score)),hi=Math.max(...scored.map(d=>d.score)),lowest=scored.length>1&&lo<hi?lo:null;
  const rec=r.recommendation||'',recommendationTone=!rec?'none':/暂不|不建议/.test(rec)?'danger':/较大修改|材料不足/.test(rec)?'warning':/修改/.test(rec)?'info':'success';
+ // Built-in checks: a summary pill stays visible when collapsed; the findings show when expanded.
+ const checks=r.compliance||[],flagged=checks.filter(c=>c.status!=='pass'),statusLabel={pass:'符合',concern:'存疑',fail:'不符合',insufficient:'材料不足'},statusTone={pass:'success',concern:'warning',fail:'danger',insufficient:'none'};
+ const checkPill=checks.length?`<span class="status-pill status-pill--${flagged.some(c=>c.status==='fail')?'danger':flagged.length?'warning':'success'}" title="${esc(checks.map(c=>c.name+'：'+statusLabel[c.status]).join('；'))}">${flagged.length?`专项审查 ${flagged.length} 项需关注`:'专项审查通过'}</span>`:'';
+ const checkCards=checks.length?`<div class="compliance-grid">${checks.map(c=>`<div class="compliance-card is-${esc(c.status)}"><div class="compliance-card__top"><strong>${esc(c.name)}</strong><span class="status-pill status-pill--${statusTone[c.status]}">${statusLabel[c.status]}</span></div><p>${esc(c.finding)}</p>${c.evidence?.length?`<small>证据：${c.evidence.map(b=>`<button type="button" class="link-btn" data-locate-block="${esc(b.id)}">第 ${esc(b.page)} 页</button>`).join('、')}</small>`:''}</div>`).join('')}</div>`:'';
  $('run-overview').classList.toggle('is-collapsed',overviewCollapsed());
  $('run-overview').innerHTML=`<div class="card__body">
  <button class="overview-toggle btn btn--ghost btn--sm" data-overview-toggle aria-expanded="${!overviewCollapsed()}"><span class="when-open">收起概览</span><span class="when-closed">展开概览</span>${icon('collapse')}</button>
@@ -69,7 +73,7 @@ function renderRunOverview(){
   <div class="score-main">
    <div class="score-label">${esc(r.standard_snapshot?.name||'历史评审记录')}</div>
    <div class="score-value"><strong class="total-score tone-${scoreTone(r.total_score)}">${r.total_score==null?'未评分':fmt(r.total_score)}</strong>${r.total_score==null?'':'<span class="score-unit">/ 100</span>'}</div>
-   <div class="score-badges">${gradeBadge(r.grade)}${r.recommendation?`<span class="status-pill status-pill--${recommendationTone}">${esc(r.recommendation)}</span>`:''}</div>
+   <div class="score-badges">${gradeBadge(r.grade)}${r.recommendation?`<span class="status-pill status-pill--${recommendationTone}">${esc(r.recommendation)}</span>`:''}${checkPill}</div>
   </div>
   <div class="score-summary">
    <p class="score-meta">${esc(r.metadata?summarizeMetadata(r.metadata):'历史记录未提供背景参数')}</p>
@@ -78,6 +82,7 @@ function renderRunOverview(){
   </div>
  </div>
  <div class="dimension-scores">${r.reviews.map(d=>`<div class="dimension-score tone-${scoreTone(d.score)}${d.score!=null&&d.score===lowest?' is-lowest':''}"><div class="dimension-score__top"><span>${esc(d.dimension)}</span>${d.score!=null&&d.score===lowest?'<em>最低</em>':''}</div><strong>${fmt(d.score)}</strong><div class="score-bar"><i style="width:${d.score==null?0:Math.max(0,Math.min(100,d.score))}%"></i></div><small>${d.weight==null?'权重未记录':'权重 '+d.weight+'%'}${d.assessment_status==='insufficient'?' · 材料不足':''}</small></div>`).join('')}</div>
+ ${checkCards}
  <div class="overview-details">
   <span id="workspace-report-status" class="status-pill" role="status"></span>
  </div>
@@ -107,5 +112,7 @@ async function initReviewSettings(){
  $('preview-rerun-standard').addEventListener('click',()=>{try{previewMetadata(rerunMetadata(),true);}catch(error){toast(error.message);}});
  $('revision-notice').addEventListener('click',event=>{if(event.target.id==='cancel-revision'){revisionPaperId=null;$('revision-notice').classList.add('hidden');}});
  for(const id of ['history-degree','history-grade'])$(id).addEventListener('change',renderArchive);
+ // Evidence of a built-in check jumps the paper pane to that page.
+ document.addEventListener('click',event=>{const link=event.target.closest('[data-locate-block]');if(!link||!realRun)return;const block=(realRun.blocks||[]).find(b=>b.id===link.dataset.locateBlock);if(!block)return;if(narrowScreen())showPane('pdf');$('page-jump').value=block.page;jumpToPage();});
  document.addEventListener('click',async event=>{const report=event.target.closest('[data-report]');if(report)await downloadReport(report.dataset.report);const retry=event.target.closest('[data-retry]');if(retry){retry.disabled=true;try{const accepted=await api('/api/tasks/'+encodeURIComponent(retry.dataset.retry)+'/retry',{method:'POST'});if(typeof expandedTasks!=='undefined'){expandedTasks.delete(retry.dataset.retry);expandedTasks.add(accepted.task_id);taskLogs.delete(accepted.task_id);}await refreshPortal();}catch(error){toast(error.message);}finally{retry.disabled=false;}}});
 }

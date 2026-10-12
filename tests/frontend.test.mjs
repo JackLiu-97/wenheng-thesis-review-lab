@@ -179,6 +179,9 @@ test('workspace overview no longer shows contribution/criteria details or rerun 
  assert.deepEqual([...h.document.querySelectorAll('.sidebar__nav [data-page]')].map(b=>b.dataset.page),['dashboard','workspace','history','profile']);
  assert(!h.$('run-overview').textContent.includes('主要贡献与评价边界'));assert(!h.$('run-overview').textContent.includes('评分依据与优先修改清单'));
  assert.equal(h.document.querySelector('.rerun-settings'),null);assert.equal(h.$('rerun-metadata'),null);
+ h.run.compliance=[{code:'training',name:'专业培养要求符合性',status:'pass',finding:'符合专业方向',evidence_ids:[],evidence:[]},{code:'topic',name:'文题一致性',status:'concern',finding:'题目偏大',evidence_ids:['b1'],evidence:[h.run.blocks[0]]},{code:'political',name:'政治方向',status:'pass',finding:'未发现政治方向问题',evidence_ids:[],evidence:[]}];
+ h.context.testRun=h.run;vm.runInContext('normalizeRun(testRun);renderAll()',h.context);
+ assert(h.$('run-overview').textContent.includes('专项审查 1 项需关注'));assert.equal(h.document.querySelectorAll('.compliance-card').length,3);assert(h.document.querySelector('.compliance-card.is-concern [data-locate-block="b1"]'));
  h.click(h.document.querySelector('[data-tab="prompts"]'));await tick();
  assert(h.document.querySelector('[data-tab="prompts"]').textContent.includes('提示词配置'));
  assert(h.$('prompt-criteria').textContent.includes('问题与研究范围'));

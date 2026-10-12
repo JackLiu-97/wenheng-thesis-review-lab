@@ -8,7 +8,7 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
-import {blocks,metadata,detailedFixture,synthesisFixture} from './helpers.mjs';
+import {blocks,metadata,detailedFixture,synthesisFixture,complianceFixture} from './helpers.mjs';
 
 // Stored ZIP entries use the real MinerU extraction path, without an external service.
 function zip(files){
@@ -36,7 +36,7 @@ test('real HTTP upload, two model stages, browser workflow and PDF download',{ti
   if(req.url==='/zip')return res.end(archive);
   if(req.url==='/chat/completions'){
    const body=JSON.parse(Buffer.concat(chunks));const prompt=body.messages[0].content;calls.push(prompt);modelRequests.push({model:body.model,authorization:req.headers.authorization});
-   let result;if(prompt.includes('已完成评审：')){const reviews=JSON.parse(prompt.split('已完成评审：')[1]),fixed=JSON.parse(prompt.match(/固定分数与建议：(.*)\n/)[1]);result=synthesisFixture({...fixed,reviews});}else result=detailedFixture();
+   let result;if(prompt.includes('已完成评审：')){const reviews=JSON.parse(prompt.split('已完成评审：')[1]),fixed=JSON.parse(prompt.match(/固定分数与建议：(.*)\n/)[1]);result=synthesisFixture({...fixed,reviews});}else result={...detailedFixture(),...(prompt.includes('【专项审查】')?{compliance:complianceFixture()}:{})};
    return send({choices:[{finish_reason:'stop',message:{content:JSON.stringify(result)}}]});
   }
   res.statusCode=404;res.end();
