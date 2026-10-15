@@ -9,27 +9,27 @@ export function timedFraction(elapsed,expected){
  if(!(expected>0))return 0;
  return elapsed<=expected?0.9*elapsed/expected:0.9+0.08*(1-Math.exp(-(elapsed-expected)/expected));
 }
-export function expectedSeconds(repo,stage,model){
+export async function expectedSeconds(repo,stage,model){
  if(stage==='parsing')return defaultSeconds.parsing;
- return Math.round(median(repo.stageDurations(stage,model))||defaultSeconds[stage]||0);
+ return Math.round(median(await repo.stageDurations(stage,model))||defaultSeconds[stage]||0);
 }
 const seconds=(from,to)=>{const a=new Date(from).getTime(),b=new Date(to).getTime();return Number.isFinite(a)&&Number.isFinite(b)?Math.max(0,Math.round((b-a)/1000)):null;};
 // Extra live fields for one task row: interpolated progress, elapsed time and remaining-time estimate.
-export function liveProgress(repo,task,now=new Date()){
+export async function liveProgress(repo,task,now=new Date()){
  const result={progress:Number(task.progress)||0,stage_started_at:task.stage_started_at||null,elapsed_seconds:null,stage_elapsed_seconds:null,eta_seconds:null,attempt_no:null,queue_position:null,server_time:now.toISOString()};
  if(task.started_at)result.elapsed_seconds=seconds(task.started_at,task.finished_at||now);
- if(task.status==='queued'){result.queue_position=repo.queuePosition(task.id,task.created_at);return result;}
+ if(task.status==='queued'){result.queue_position=await repo.queuePosition(task.id,task.created_at);return result;}
  if(task.status!=='running')return result;
- const attempt=repo.runningAttempt(task.id),started=attempt?.stage===task.stage?attempt.started_at:task.stage_started_at;
+ const attempt=await repo.runningAttempt(task.id),started=attempt?.stage===task.stage?attempt.started_at:task.stage_started_at;
  if(started)result.stage_elapsed_seconds=seconds(started,now);
  if(attempt?.stage===task.stage&&attempt.attempt_no>1)result.attempt_no=attempt.attempt_no;
  const order=['parsing','reviewing','synthesizing'],index=order.indexOf(task.stage);if(index<0)return result;
- const expected=expectedSeconds(repo,task.stage,task.model),elapsed=result.stage_elapsed_seconds??0;
+ const expected=await expectedSeconds(repo,task.stage,task.model),elapsed=result.stage_elapsed_seconds??0;
  if(task.stage!=='parsing'){result.progress=Math.max(result.progress,stageProgress(task.stage,timedFraction(elapsed,expected)));}
  // 解析阶段按 MinerU 返回的页数推进；剩余时间按该阶段已完成比例推算。
  const [start,end]=stageRanges[task.stage],done=Math.max(0,Math.min(1,(result.progress-start)/(end-start)));
  let remaining=task.stage==='parsing'&&done>0.05&&elapsed>0?elapsed*(1-done)/done:Math.max(0,expected-elapsed);
- for(const later of order.slice(index+1))remaining+=expectedSeconds(repo,later,task.model);
+ for(const later of order.slice(index+1))remaining+=await expectedSeconds(repo,later,task.model);
  result.eta_seconds=Math.round(remaining);
  return result;
 }

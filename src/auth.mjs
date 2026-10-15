@@ -23,7 +23,7 @@ export function createAuth({repo}){
  }
  async function issueSession(user,res){
   const token=crypto.randomBytes(32).toString('hex');
-  repo.addSession(hashToken(token),user.id,Date.now()+ttl);
+  await repo.addSession(hashToken(token),user.id,Date.now()+ttl);
   res.setHeader('Set-Cookie',cookie(token,ttl/1000));return publicUser(user);
  }
  async function authenticate(req){
@@ -37,25 +37,25 @@ export function createAuth({repo}){
   if(typeof password!=='string'||password.length<8||password.length>128)throw fail(400,'密码须为 8–128 位');
   if(typeof phone!=='string'||(phone&&!/^\+?[\d -]{6,20}$/.test(phone)))throw fail(400,'请输入有效的联系电话，或留空');
   const credentials=await passwordHash(password);
-  const user=repo.createUser({id:crypto.randomUUID(),username,phone,credentials,created_at:new Date().toISOString()});
+  const user=await repo.createUser({id:crypto.randomUUID(),username,phone,credentials,created_at:new Date().toISOString()});
   return issueSession(user,res);
  }
  async function login(input,req,res){
   throttle(req);
   if(typeof input?.username!=='string'||typeof input?.password!=='string'||input.password.length>128)throw fail(400,'请输入用户名和密码');
-  const user=repo.userByName(input.username);
+  const user=await repo.userByName(input.username);
   if(!user||!await passwordMatches(input.password,user.credentials))throw fail(401,'用户名或密码错误');
   return issueSession(user,res);
  }
  async function logout(req,res){
-  const hash=hashToken(getToken(req));repo.deleteSession(hash);
+  const hash=hashToken(getToken(req));await repo.deleteSession(hash);
   res.setHeader('Set-Cookie',cookie('',0));
  }
  async function changePassword(user,input,res){
   if(typeof input?.current_password!=='string'||input.current_password.length>128||!await passwordMatches(input.current_password,user.credentials))throw fail(400,'当前密码不正确');
   if(typeof input.password!=='string'||input.password.length<8||input.password.length>128)throw fail(400,'新密码须为 8–128 位');
   const credentials=await passwordHash(input.password);
-  repo.changePassword(user.id,credentials);
+  await repo.changePassword(user.id,credentials);
   res.setHeader('Set-Cookie',cookie('',0));
  }
  return {authenticate,register,login,logout,changePassword};

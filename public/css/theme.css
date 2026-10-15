@@ -497,11 +497,12 @@ textarea { min-height: 120px; resize: vertical; line-height: 1.7; }
 .compose-view { max-width: 1440px; margin: 0 auto; }
 .compose-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .compose-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
-.compose-main .tasks-card { position: static; max-height: none; }
-.compose-main .tasks-card #task-list { max-height: 560px; }
-.compose-prompts { position: sticky; top: 24px; max-height: calc(100vh - 48px); display: flex; flex-direction: column; min-width: 0; }
-.compose-prompts__slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.compose-prompts .view-heading h2 { display: none; }
+.compose-side { position: sticky; top: 24px; height: calc(100vh - 48px); min-height: 520px; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.compose-tabs { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--border); }
+.compose-side__panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.compose-side__panel.hidden { display: none; }
+.compose-side__tasks { flex: 1; min-height: 0; overflow-y: auto; }
+.compose-side .view-heading h2 { display: none; }
 /* Controls that act on an opened run are not shown while composing. */
 .is-compose #prompts-view .prompt-tip, .is-compose #prompts-view .rerun-row, .is-compose #preview-rerun-standard, .is-compose #rerun-preview { display: none !important; }
 .version-pick { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
@@ -890,7 +891,8 @@ kbd { display: inline-block; min-width: 18px; padding: 0 4px; margin: 0 1px; bor
 @media (max-width: 1280px) {
   .content-grid, .review-layout { grid-template-columns: minmax(0, 1fr); }
   .compose-layout { grid-template-columns: minmax(0, 1fr); }
-  .compose-prompts { position: static; max-height: none; }
+  .compose-side { position: static; height: auto; max-height: none; }
+  .compose-side__tasks { max-height: 70vh; }
   .side-stack { grid-template-columns: 1fr 1fr; }
   .tasks-card { position: static; max-height: none; }
   .archive-head, .archive-row { grid-template-columns: minmax(0, 1fr) 130px 120px 180px; }

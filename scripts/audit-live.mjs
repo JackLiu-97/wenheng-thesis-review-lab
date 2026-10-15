@@ -1,5 +1,5 @@
 // Explicit, paid-service smoke test using only the synthetic sample PDF.
-// Keeps its account and runs in a separate audit directory, never production data.
+// Keeps its account and runs in a separate audit directory and its own MySQL database, never production data.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -12,7 +12,7 @@ const output=path.join(root,'data','audit-'+new Date().toISOString().replace(/[:
 await fs.mkdir(output,{recursive:true});
 const report={started_at:new Date().toISOString(),checks:[],data_directory:output};
 const record=(name,status,detail)=>{report.checks.push({name,status,detail});console.log(JSON.stringify({name,status,detail}));};
-const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,REVIEW_DATA_DIR:output,REVIEW_DATABASE_PATH:path.join(output,'review.sqlite3'),REVIEW_PORT:'0'}});
+const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,REVIEW_DATA_DIR:output,MYSQL_DATABASE:'wenheng_audit_'+Date.now(),REVIEW_PORT:'0'}});
 const stderr=[];child.stderr.on('data',d=>stderr.push(d.toString()));
 let cookie='';
 const base=await new Promise((resolve,reject)=>{let text='';child.stdout.on('data',d=>{text+=d;const m=text.match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});child.on('error',reject);child.on('exit',c=>reject(Error('Audit service exited '+c)));});

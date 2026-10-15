@@ -4,6 +4,7 @@ import net from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {spawn,spawnSync} from 'node:child_process';
 import {relocateDatabase} from './relocate-data.mjs';
+import {openDatabase,databaseConfig} from '../src/database.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 process.chdir(root);
@@ -20,10 +21,16 @@ try{
   probe.once('error',error=>reject(Error(error.code==='EADDRINUSE'?`端口 ${port} 已被占用；如果文衡已启动，请打开 http://127.0.0.1:${port}/。`:error.message)));
   probe.listen(port,'127.0.0.1',()=>probe.close(resolve));
  });
- const dataDir=path.resolve(process.env.REVIEW_DATA_DIR||path.join(root,'data'));
- const dbPath=path.resolve(process.env.REVIEW_DATABASE_PATH||path.join(dataDir,'review.sqlite3'));
+ // Connect to MySQL first so a stopped server gives a clear hint instead of a stack trace.
+ let repo;
+ try{repo=await openDatabase(databaseConfig());}
+ catch(error){
+  if(['ECONNREFUSED','ENOENT'].includes(error.code))throw Error('无法连接 MySQL。请先启动：brew services start mysql（或 mysql.server start），并确认 .env 中的 MYSQL_* 配置。');
+  if(error.code==='ER_ACCESS_DENIED_ERROR')throw Error('MySQL 拒绝登录，请检查 .env 中的 MYSQL_USER / MYSQL_PASSWORD。');
+  throw error;
+ }
  // Re-anchor stored file paths if the project folder was moved (root recorded in app_meta).
- if(fs.existsSync(dbPath))console.log('数据库与文件路径检查通过：'+JSON.stringify(relocateDatabase(dbPath,root,root)));
+ try{console.log('数据库与文件路径检查通过：'+JSON.stringify(await relocateDatabase(repo,root,root)));}finally{await repo.close();}
  if(check){
   const commands=[['PDF 页面渲染',process.env.PDFTOPPM_BIN||'pdftoppm',['-v']],['ZIP 解包','/usr/bin/unzip',['-v']]];
   if(process.env.CODEX_API_KEY&&process.env.CODEX_BASE_URL)commands.push(['GPT CLI',process.env.REVIEW_CODEX_BIN||process.env.CODEX_CLI_PATH||'codex',['--version']]);
@@ -33,7 +40,7 @@ try{
    console.log(name+'：通过');
   }
   const {chromium}=await import('playwright');const browser=await chromium.launch({headless:true});await browser.close();
-  console.log('Node 24、SQLite、文件引用、Poppler、unzip、Chromium 自检通过。');
+  console.log('Node 24、MySQL、文件引用、Poppler、unzip、Chromium 自检通过。');
  }else{
   delete process.env.REVIEW_SKIP_ENV;
   await import('../src/server.mjs');

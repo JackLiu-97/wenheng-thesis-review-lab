@@ -191,18 +191,26 @@ export async function generatePdf(run,target){
 }
 export function createReportService(repo,dataDir,{generate=generatePdf}={}){
  const pending=new Map();let queue=Promise.resolve();
+ // One report at a time; repeated requests for the same run share one job, and a ready file is reused.
  function request(runId){
   if(pending.has(runId))return pending.get(runId);
-  const run=repo.run(runId);if(!run)throw Object.assign(Error('评审记录不存在'),{status:404});
-  const existing=repo.report(runId);
-  if(existing?.status==='ready'&&existing.template_version===reportTemplateVersion&&existsSync(existing.storage_path))return Promise.resolve(existing);
-  repo.setReport(runId,reportTemplateVersion,'pending');
-  const work=queue.catch(()=>{}).then(async()=>{
-   repo.setReport(runId,reportTemplateVersion,'generating');
-   try{const info=await generate(run,path.join(dataDir,'reports',runId,reportTemplateVersion+'.pdf'));return repo.setReport(runId,reportTemplateVersion,'ready',info);}
-   catch(error){return repo.setReport(runId,reportTemplateVersion,'failed',{error:safeError(error)});}
-   finally{pending.delete(runId);}
-  });pending.set(runId,work);queue=work;return work;
+  // `started` settles once the job is recorded as pending (or found ready), before generation finishes.
+  let markStarted;const started=new Promise(resolve=>{markStarted=resolve;});
+  const job=(async()=>{
+   let run;
+   try{
+    run=await repo.run(runId);if(!run)throw Object.assign(Error('评审记录不存在'),{status:404});
+    const existing=await repo.report(runId);
+    if(existing?.status==='ready'&&existing.template_version===reportTemplateVersion&&existsSync(existing.storage_path))return existing;
+    await repo.setReport(runId,reportTemplateVersion,'pending');
+   }finally{markStarted();}
+   const work=queue.catch(()=>{}).then(async()=>{
+    await repo.setReport(runId,reportTemplateVersion,'generating');
+    try{const info=await generate(run,path.join(dataDir,'reports',runId,reportTemplateVersion+'.pdf'));return await repo.setReport(runId,reportTemplateVersion,'ready',info);}
+    catch(error){return repo.setReport(runId,reportTemplateVersion,'failed',{error:safeError(error)});}
+   });queue=work;return work;
+  })().finally(()=>pending.delete(runId));
+  job.started=started;pending.set(runId,job);return job;
  }
- return {request,idle:()=>queue};
+ return {request,idle:async()=>{while(pending.size)await Promise.allSettled([...pending.values()]);await queue;}};
 }

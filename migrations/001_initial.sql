@@ -1,26 +1,244 @@
-CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL);
-CREATE TABLE app_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE users(id TEXT PRIMARY KEY, username TEXT NOT NULL, username_normalized TEXT NOT NULL UNIQUE, phone TEXT NOT NULL DEFAULT '', password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, created_at TEXT NOT NULL);
-CREATE TABLE sessions(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL, created_at TEXT NOT NULL);
-CREATE INDEX sessions_user ON sessions(user_id);
-CREATE TABLE papers(id TEXT PRIMARY KEY, owner_id TEXT REFERENCES users(id), title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE INDEX papers_owner ON papers(owner_id,created_at);
-CREATE TABLE paper_versions(id TEXT PRIMARY KEY, paper_id TEXT NOT NULL REFERENCES papers(id), version_no INTEGER NOT NULL CHECK(version_no>0), original_filename TEXT NOT NULL, storage_path TEXT NOT NULL, sha256 TEXT, size_bytes INTEGER, metadata_json TEXT NOT NULL CHECK(json_valid(metadata_json)), created_at TEXT NOT NULL, UNIQUE(paper_id,version_no));
-CREATE TABLE parse_results(id TEXT PRIMARY KEY, paper_version_id TEXT NOT NULL REFERENCES paper_versions(id), parser TEXT NOT NULL, parser_version TEXT, status TEXT NOT NULL CHECK(status IN ('ready','failed')), page_count INTEGER NOT NULL, page_sizes_json TEXT NOT NULL, coordinate_system_json TEXT NOT NULL, artifact_path TEXT, error TEXT, created_at TEXT NOT NULL);
-CREATE INDEX parse_version ON parse_results(paper_version_id);
-CREATE TABLE document_blocks(id TEXT PRIMARY KEY, parse_result_id TEXT NOT NULL REFERENCES parse_results(id), source_block_id TEXT NOT NULL, sequence_no INTEGER NOT NULL, page_no INTEGER NOT NULL CHECK(page_no>0), block_type TEXT NOT NULL, text TEXT NOT NULL, bbox_json TEXT, UNIQUE(parse_result_id,source_block_id));
-CREATE TABLE standard_versions(id TEXT PRIMARY KEY, standard_key TEXT NOT NULL, version INTEGER NOT NULL, name TEXT NOT NULL, rubric_json TEXT NOT NULL, degree_profiles_json TEXT NOT NULL, discipline_profiles_json TEXT NOT NULL, scoring_rules_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(standard_key,version));
-CREATE TABLE prompt_versions(id TEXT PRIMARY KEY, owner_id TEXT REFERENCES users(id), dimension_code TEXT NOT NULL CHECK(dimension_code IN ('d1','d2','d3','d4','d5','d6')), version INTEGER NOT NULL, text TEXT NOT NULL, note TEXT NOT NULL, kind TEXT, created_at TEXT NOT NULL);
-CREATE UNIQUE INDEX prompt_owner_version ON prompt_versions(COALESCE(owner_id,''),dimension_code,version);
-CREATE TABLE review_tasks(id TEXT PRIMARY KEY, owner_id TEXT REFERENCES users(id), paper_version_id TEXT REFERENCES paper_versions(id), parent_run_id TEXT REFERENCES review_runs(id), provider TEXT NOT NULL, model TEXT, status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','interrupted')), stage TEXT NOT NULL, request_snapshot_json TEXT NOT NULL CHECK(json_valid(request_snapshot_json)), checkpoint_json TEXT, error TEXT, message TEXT NOT NULL, progress INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);
-CREATE INDEX tasks_owner_status ON review_tasks(owner_id,status,created_at);
-CREATE TABLE review_attempts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES review_tasks(id), stage TEXT NOT NULL, attempt_no INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','interrupted')), input_path TEXT NOT NULL, output_path TEXT, error TEXT, started_at TEXT NOT NULL, finished_at TEXT, UNIQUE(task_id,stage,attempt_no));
-CREATE TABLE review_runs(id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE REFERENCES review_tasks(id), parse_result_id TEXT NOT NULL REFERENCES parse_results(id), result_schema_version INTEGER NOT NULL, overall_summary TEXT, strengths_json TEXT NOT NULL, limitations_json TEXT NOT NULL, revision_plan_json TEXT NOT NULL, recommendation_reason TEXT, total_score REAL CHECK(total_score IS NULL OR total_score BETWEEN 0 AND 100), grade TEXT, recommendation TEXT, assessment_status TEXT NOT NULL CHECK(assessment_status IN ('legacy','assessed','insufficient')), created_at TEXT NOT NULL);
-CREATE TABLE dimension_reviews(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES review_runs(id), dimension_code TEXT NOT NULL CHECK(dimension_code IN ('d1','d2','d3','d4','d5','d6')), summary TEXT NOT NULL, assessment_status TEXT NOT NULL CHECK(assessment_status IN ('legacy','assessed','insufficient')), score REAL CHECK(score IS NULL OR score BETWEEN 0 AND 100), weight REAL CHECK(weight IS NULL OR weight BETWEEN 0 AND 100), score_reason TEXT, criteria_json TEXT NOT NULL, UNIQUE(run_id,dimension_code));
-CREATE TABLE review_issues(id TEXT PRIMARY KEY, dimension_review_id TEXT NOT NULL REFERENCES dimension_reviews(id), criterion_code TEXT, severity TEXT NOT NULL CHECK(severity IN ('major','minor','positive')), title TEXT NOT NULL, detail TEXT NOT NULL, suggestion TEXT NOT NULL, evidence_status TEXT NOT NULL, sequence_no INTEGER NOT NULL);
-CREATE INDEX issues_dimension ON review_issues(dimension_review_id,sequence_no);
-CREATE TABLE issue_evidence(issue_id TEXT NOT NULL REFERENCES review_issues(id), block_id TEXT NOT NULL REFERENCES document_blocks(id), sequence_no INTEGER NOT NULL, PRIMARY KEY(issue_id,block_id));
-CREATE TRIGGER evidence_same_parse BEFORE INSERT ON issue_evidence BEGIN
- SELECT CASE WHEN (SELECT parse_result_id FROM document_blocks WHERE id=NEW.block_id) != (SELECT r.parse_result_id FROM review_runs r JOIN dimension_reviews d ON d.run_id=r.id JOIN review_issues i ON i.dimension_review_id=d.id WHERE i.id=NEW.issue_id) THEN RAISE(ABORT,'evidence belongs to another document') END;
-END;
-CREATE TABLE report_files(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES review_runs(id), template_version TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','generating','ready','failed')), storage_path TEXT, sha256 TEXT, generated_at TEXT, error TEXT, UNIQUE(run_id,template_version));
+-- 文衡 MySQL 数据库结构（兼容 MySQL 5.7+）。
+-- 时间统一以 ISO-8601 字符串保存；JSON 内容以 LONGTEXT 保存，由程序校验与解析。
+-- MySQL 5.7 不执行 CHECK 约束，取值范围与跨表一致性（如证据必须属于同一次解析）由程序保证。
+CREATE TABLE schema_migrations (
+ version INT NOT NULL PRIMARY KEY,
+ checksum CHAR(64) NOT NULL,
+ applied_at VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE app_meta (
+ meta_key VARCHAR(100) NOT NULL PRIMARY KEY,
+ meta_value LONGTEXT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE users (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ username VARCHAR(64) NOT NULL,
+ username_normalized VARCHAR(64) NOT NULL,
+ phone VARCHAR(32) NOT NULL DEFAULT '',
+ password_hash VARCHAR(255) NOT NULL,
+ password_salt VARCHAR(255) NOT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ UNIQUE KEY users_username (username_normalized)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE sessions (
+ token_hash CHAR(64) NOT NULL PRIMARY KEY,
+ user_id VARCHAR(64) NOT NULL,
+ expires_at BIGINT NOT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ KEY sessions_user (user_id),
+ CONSTRAINT sessions_user_fk FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE papers (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ owner_id VARCHAR(64) NULL,
+ title TEXT NOT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ updated_at VARCHAR(32) NOT NULL,
+ KEY papers_owner (owner_id, created_at),
+ CONSTRAINT papers_owner_fk FOREIGN KEY (owner_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE paper_versions (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ paper_id VARCHAR(64) NOT NULL,
+ version_no INT NOT NULL,
+ original_filename VARCHAR(512) NOT NULL,
+ storage_path TEXT NOT NULL,
+ sha256 CHAR(64) NULL,
+ size_bytes BIGINT NULL,
+ metadata_json LONGTEXT NOT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ UNIQUE KEY paper_versions_number (paper_id, version_no),
+ KEY paper_versions_sha256 (sha256),
+ CONSTRAINT paper_versions_paper_fk FOREIGN KEY (paper_id) REFERENCES papers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE parse_results (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ paper_version_id VARCHAR(64) NOT NULL,
+ parser VARCHAR(64) NOT NULL,
+ parser_version VARCHAR(64) NULL,
+ status VARCHAR(16) NOT NULL,
+ page_count INT NOT NULL,
+ page_sizes_json LONGTEXT NOT NULL,
+ coordinate_system_json LONGTEXT NOT NULL,
+ artifact_path TEXT NULL,
+ error TEXT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ KEY parse_version (paper_version_id),
+ CONSTRAINT parse_results_version_fk FOREIGN KEY (paper_version_id) REFERENCES paper_versions(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE document_blocks (
+ id VARCHAR(255) NOT NULL PRIMARY KEY,
+ parse_result_id VARCHAR(64) NOT NULL,
+ source_block_id VARCHAR(160) NOT NULL,
+ sequence_no INT NOT NULL,
+ page_no INT NOT NULL,
+ block_type VARCHAR(32) NOT NULL,
+ text LONGTEXT NOT NULL,
+ bbox_json TEXT NULL,
+ UNIQUE KEY document_blocks_source (parse_result_id, source_block_id),
+ CONSTRAINT document_blocks_parse_fk FOREIGN KEY (parse_result_id) REFERENCES parse_results(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE standard_versions (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ standard_key VARCHAR(64) NOT NULL,
+ version INT NOT NULL,
+ name VARCHAR(255) NOT NULL,
+ rubric_json LONGTEXT NOT NULL,
+ degree_profiles_json LONGTEXT NOT NULL,
+ discipline_profiles_json LONGTEXT NOT NULL,
+ scoring_rules_json LONGTEXT NOT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ UNIQUE KEY standard_versions_key (standard_key, version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE prompt_versions (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ owner_id VARCHAR(64) NULL,
+ -- 系统模板（owner_id 为空）与各账号的版本号分别唯一。
+ owner_key VARCHAR(64) GENERATED ALWAYS AS (IFNULL(owner_id, '')) STORED,
+ dimension_code VARCHAR(8) NOT NULL,
+ version INT NOT NULL,
+ text LONGTEXT NOT NULL,
+ note VARCHAR(1000) NOT NULL,
+ kind VARCHAR(16) NULL,
+ created_at VARCHAR(32) NOT NULL,
+ UNIQUE KEY prompt_owner_version (owner_key, dimension_code, version),
+ CONSTRAINT prompt_versions_owner_fk FOREIGN KEY (owner_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE review_tasks (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ owner_id VARCHAR(64) NULL,
+ paper_version_id VARCHAR(64) NULL,
+ parent_run_id VARCHAR(64) NULL,
+ provider VARCHAR(32) NOT NULL,
+ model VARCHAR(128) NULL,
+ status VARCHAR(16) NOT NULL,
+ stage VARCHAR(32) NOT NULL,
+ request_snapshot_json LONGTEXT NOT NULL,
+ checkpoint_json LONGTEXT NULL,
+ error TEXT NULL,
+ message TEXT NOT NULL,
+ progress INT NOT NULL DEFAULT 0,
+ created_at VARCHAR(32) NOT NULL,
+ started_at VARCHAR(32) NULL,
+ finished_at VARCHAR(32) NULL,
+ stage_started_at VARCHAR(32) NULL,
+ dismissed_at VARCHAR(32) NULL,
+ KEY tasks_owner_status (owner_id, status, created_at),
+ KEY tasks_status (status, created_at),
+ CONSTRAINT review_tasks_owner_fk FOREIGN KEY (owner_id) REFERENCES users(id),
+ CONSTRAINT review_tasks_version_fk FOREIGN KEY (paper_version_id) REFERENCES paper_versions(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE review_attempts (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ task_id VARCHAR(64) NOT NULL,
+ stage VARCHAR(32) NOT NULL,
+ attempt_no INT NOT NULL,
+ status VARCHAR(16) NOT NULL,
+ input_path TEXT NOT NULL,
+ output_path TEXT NULL,
+ error TEXT NULL,
+ started_at VARCHAR(32) NOT NULL,
+ finished_at VARCHAR(32) NULL,
+ UNIQUE KEY review_attempts_number (task_id, stage, attempt_no),
+ KEY review_attempts_stage (stage, status, started_at),
+ CONSTRAINT review_attempts_task_fk FOREIGN KEY (task_id) REFERENCES review_tasks(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE review_runs (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ task_id VARCHAR(64) NOT NULL,
+ parse_result_id VARCHAR(64) NOT NULL,
+ result_schema_version INT NOT NULL,
+ overall_summary LONGTEXT NULL,
+ strengths_json LONGTEXT NOT NULL,
+ limitations_json LONGTEXT NOT NULL,
+ revision_plan_json LONGTEXT NOT NULL,
+ recommendation_reason LONGTEXT NULL,
+ total_score DOUBLE NULL,
+ grade VARCHAR(32) NULL,
+ recommendation VARCHAR(64) NULL,
+ assessment_status VARCHAR(16) NOT NULL,
+ compliance_json LONGTEXT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ UNIQUE KEY review_runs_task (task_id),
+ CONSTRAINT review_runs_task_fk FOREIGN KEY (task_id) REFERENCES review_tasks(id),
+ CONSTRAINT review_runs_parse_fk FOREIGN KEY (parse_result_id) REFERENCES parse_results(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- review_tasks 与 review_runs 互相引用，表都建好后再补外键。
+ALTER TABLE review_tasks ADD CONSTRAINT review_tasks_parent_fk FOREIGN KEY (parent_run_id) REFERENCES review_runs(id);
+
+CREATE TABLE dimension_reviews (
+ id VARCHAR(128) NOT NULL PRIMARY KEY,
+ run_id VARCHAR(64) NOT NULL,
+ dimension_code VARCHAR(8) NOT NULL,
+ summary LONGTEXT NOT NULL,
+ assessment_status VARCHAR(16) NOT NULL,
+ score DOUBLE NULL,
+ weight DOUBLE NULL,
+ score_reason LONGTEXT NULL,
+ criteria_json LONGTEXT NOT NULL,
+ UNIQUE KEY dimension_reviews_run (run_id, dimension_code),
+ CONSTRAINT dimension_reviews_run_fk FOREIGN KEY (run_id) REFERENCES review_runs(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE review_issues (
+ id VARCHAR(128) NOT NULL PRIMARY KEY,
+ dimension_review_id VARCHAR(128) NOT NULL,
+ criterion_code VARCHAR(16) NULL,
+ severity VARCHAR(16) NOT NULL,
+ title TEXT NOT NULL,
+ detail LONGTEXT NOT NULL,
+ suggestion LONGTEXT NOT NULL,
+ evidence_status VARCHAR(16) NOT NULL,
+ sequence_no INT NOT NULL,
+ KEY issues_dimension (dimension_review_id, sequence_no),
+ CONSTRAINT review_issues_dimension_fk FOREIGN KEY (dimension_review_id) REFERENCES dimension_reviews(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE issue_evidence (
+ issue_id VARCHAR(128) NOT NULL,
+ block_id VARCHAR(255) NOT NULL,
+ sequence_no INT NOT NULL,
+ PRIMARY KEY (issue_id, block_id),
+ CONSTRAINT issue_evidence_issue_fk FOREIGN KEY (issue_id) REFERENCES review_issues(id),
+ CONSTRAINT issue_evidence_block_fk FOREIGN KEY (block_id) REFERENCES document_blocks(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE report_files (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ -- 生成顺序，用于取每条评审的最新报告。
+ seq BIGINT NOT NULL AUTO_INCREMENT,
+ run_id VARCHAR(64) NOT NULL,
+ template_version VARCHAR(32) NOT NULL,
+ status VARCHAR(16) NOT NULL,
+ storage_path TEXT NULL,
+ sha256 CHAR(64) NULL,
+ generated_at VARCHAR(32) NULL,
+ error TEXT NULL,
+ UNIQUE KEY report_files_seq (seq),
+ UNIQUE KEY report_files_template (run_id, template_version),
+ CONSTRAINT report_files_run_fk FOREIGN KEY (run_id) REFERENCES review_runs(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE task_events (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ task_id VARCHAR(64) NOT NULL,
+ created_at VARCHAR(32) NOT NULL,
+ stage VARCHAR(32) NULL,
+ level VARCHAR(16) NOT NULL,
+ message TEXT NOT NULL,
+ KEY task_events_task (task_id, id),
+ CONSTRAINT task_events_task_fk FOREIGN KEY (task_id) REFERENCES review_tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

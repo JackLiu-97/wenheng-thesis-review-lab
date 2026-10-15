@@ -66,9 +66,9 @@
  </div>
  <div class="stats-row">
   <div class="stat-card" data-page="history" role="button" tabindex="0" title="查看评审历史"><div class="stat-card__icon"><svg class="icon"><use href="#i-layers"/></svg></div><div><div class="stat-card__label">评审记录</div><div class="stat-card__value" id="stat-total">–</div></div></div>
-  <div class="stat-card stat-card--warning" data-page="review" role="button" tabindex="0" title="查看任务列表"><div class="stat-card__icon"><svg class="icon"><use href="#i-clock"/></svg></div><div><div class="stat-card__label">排队 / 进行中</div><div class="stat-card__value" id="stat-running">–</div></div></div>
+  <div class="stat-card stat-card--warning" data-page="review" data-compose-tab="tasks" role="button" tabindex="0" title="查看任务列表"><div class="stat-card__icon"><svg class="icon"><use href="#i-clock"/></svg></div><div><div class="stat-card__label">排队 / 进行中</div><div class="stat-card__value" id="stat-running">–</div></div></div>
   <div class="stat-card stat-card--success" data-page="history" role="button" tabindex="0" title="查看评审历史"><div class="stat-card__icon"><svg class="icon"><use href="#i-check"/></svg></div><div><div class="stat-card__label">已完成</div><div class="stat-card__value" id="stat-done">–</div></div></div>
-  <div class="stat-card stat-card--danger" data-page="review" role="button" tabindex="0" title="查看失败任务"><div class="stat-card__icon"><svg class="icon"><use href="#i-alert"/></svg></div><div><div class="stat-card__label">失败任务</div><div class="stat-card__value" id="stat-failed">–</div></div></div>
+  <div class="stat-card stat-card--danger" data-page="review" data-compose-tab="tasks" role="button" tabindex="0" title="查看失败任务"><div class="stat-card__icon"><svg class="icon"><use href="#i-alert"/></svg></div><div><div class="stat-card__label">失败任务</div><div class="stat-card__value" id="stat-failed">–</div></div></div>
  </div>
  <div class="content-grid">
   <div class="card">
@@ -77,7 +77,7 @@
   </div>
   <div class="side-stack">
    <div class="card">
-    <div class="card__header"><h2 class="card__title">进行中的任务</h2><button class="btn btn--ghost btn--sm" data-page="review">任务列表</button></div>
+    <div class="card__header"><h2 class="card__title">进行中的任务</h2><button class="btn btn--ghost btn--sm" data-page="review" data-compose-tab="tasks">任务列表</button></div>
     <div class="card__body card__body--flush" id="dash-tasks"><div class="skeleton-list"><span></span></div></div>
    </div>
    <div class="card">
@@ -132,7 +132,7 @@
 
 <section id="page-workspace" class="page page--workspace hidden">
  <div id="compose-view" class="compose-view">
-  <div class="page-header"><div><h1 class="page-title">新建评审</h1><p class="page-desc">上传论文 PDF、填写论文背景并选择模型；可在右侧修改各维度提示词并选择版本。评审完成后自动进入结果视图。</p></div><button id="back-to-result" type="button" class="btn btn--outline hidden"><svg class="icon"><use href="#i-workspace"/></svg>返回评审结果</button></div>
+  <div class="page-header"><div><h1 class="page-title">新建评审</h1><p class="page-desc">上传论文 PDF、填写论文背景并选择模型；右侧可修改各维度提示词并选择版本，开始评审后切换为评审进度。评审完成后自动进入结果视图。</p></div><button id="back-to-result" type="button" class="btn btn--outline hidden"><svg class="icon"><use href="#i-workspace"/></svg>返回评审结果</button></div>
   <div class="compose-layout">
    <div class="compose-main">
   <div class="card upload-card">
@@ -168,13 +168,21 @@
     </div>
    </form>
   </div>
-  <div class="card tasks-card">
-   <div class="card__header"><h2 class="card__title">评审进度</h2><span id="task-active-count" class="live-badge hidden"></span><button class="btn btn--ghost btn--sm" id="refresh-tasks"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button></div>
-   <div class="task-filters" id="task-filters" role="tablist" aria-label="按状态筛选任务"></div>
-   <div class="card__body card__body--flush" id="task-list"><div class="skeleton-list"><span></span><span></span></div></div>
-  </div>
    </div>
-   <div class="card compose-prompts"><div class="card__header"><h2 class="card__title">提示词配置</h2></div><div id="compose-prompts-slot" class="compose-prompts__slot"></div></div>
+   <div class="card compose-side">
+    <div class="compose-tabs">
+     <nav class="tabs" role="tablist" aria-label="提示词配置与评审进度">
+      <button type="button" role="tab" class="active" aria-selected="true" data-compose-tab="prompts">提示词配置</button>
+      <button type="button" role="tab" aria-selected="false" data-compose-tab="tasks">评审进度<span id="task-active-count" class="hidden"></span></button>
+     </nav>
+     <button class="btn btn--ghost btn--sm hidden" id="refresh-tasks"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+    </div>
+    <div id="compose-prompts-slot" class="compose-side__panel" data-compose-panel="prompts"></div>
+    <div class="compose-side__panel hidden" data-compose-panel="tasks">
+     <div class="task-filters" id="task-filters" role="tablist" aria-label="按状态筛选任务"></div>
+     <div id="task-list" class="compose-side__tasks"><div class="skeleton-list"><span></span><span></span></div></div>
+    </div>
+   </div>
   </div>
  </div>
  <div class="result-view">

@@ -14,7 +14,7 @@ if(command==='check'){
  for(const file of [...files('src'),...files('scripts'),...files('public/js'),...files('tests')]){const p=spawnSync(runtime,['--check',file],{cwd:root,stdio:'inherit'});if(p.status)process.exit(p.status);}
  console.log('JavaScript syntax checks passed');
 }else{
- const entry={start:['src/server.mjs'],test:['--test',...files('tests').filter(f=>f.endsWith('.test.mjs'))],migrate:['scripts/migrate-store.mjs'],'audit:live':['scripts/audit-live.mjs'],'reports:samples':['scripts/create-report-samples.mjs'],'reports:generate':['scripts/report.mjs'],backup:['scripts/backup.mjs']}[command];
+ const entry={start:['src/server.mjs'],test:['--test',...files('tests').filter(f=>f.endsWith('.test.mjs'))],'import:sqlite':['scripts/import-sqlite.mjs'],'audit:live':['scripts/audit-live.mjs'],'reports:samples':['scripts/create-report-samples.mjs'],'reports:generate':['scripts/report.mjs'],backup:['scripts/backup.mjs']}[command];
  if(!entry)throw Error('未知项目命令：'+command);
  const child=spawn(runtime,[...entry,...rest],{cwd:root,stdio:'inherit',env:{...process.env,PATH:path.dirname(runtime)+path.delimiter+process.env.PATH}});
  child.on('error',error=>{console.error(error.message);process.exitCode=1;});child.on('exit',code=>{process.exitCode=code??1;});

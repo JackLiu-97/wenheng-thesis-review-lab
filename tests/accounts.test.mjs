@@ -7,18 +7,25 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import {dimensions,defaultPrompts} from '../src/prompts.mjs';
-import {openDatabase} from '../src/database.mjs';
-import {metadata} from './helpers.mjs';
+import {openDatabase,dropDatabase} from '../src/database.mjs';
+import {metadata,testDatabaseConfig,testDatabaseEnv} from './helpers.mjs';
 
 test('real HTTP account lifecycle, private data, exports and task failure recovery',{timeout:30000},async()=>{
  const data=await fs.mkdtemp(path.join(os.tmpdir(),'review-accounts-test-'));
  const root=fileURLToPath(new URL('..',import.meta.url));
- const original={prompts:defaultPrompts(),runs:[{id:'legacy-run',filename:'paper.pdf',created_at:'2026-01-01',page_count:1,page_sizes:[[595,841]],source_pdf:'/api/runs/legacy-run/pdf',blocks:[{id:'b1',page:1,text:'论文内容'}],snapshots:defaultPrompts().map(v=>v[0]),reviews:dimensions.map(d=>({dimension:d,summary:'<script>unsafe</script>',issues:[]}))}]};
- await fs.mkdir(path.join(data,'runs','legacy-run'),{recursive:true});
- await fs.writeFile(path.join(data,'runs','legacy-run','paper.pdf'),'%PDF-1.4 test');
+ const snapshots=defaultPrompts().map(v=>v[0]),config=testDatabaseConfig();
+ const pdf=path.join(data,'runs','legacy-run','paper.pdf');
+ await fs.mkdir(path.dirname(pdf),{recursive:true});await fs.writeFile(pdf,'%PDF-1.4 test');
  await fs.writeFile(path.join(data,'runs','legacy-run','page-1.png'),Buffer.from([137,80,78,71]));
- await fs.writeFile(path.join(data,'store.json'),JSON.stringify(original));
- const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,REVIEW_SKIP_ENV:'1',REVIEW_DATA_DIR:data,REVIEW_PORT:'0',CODEX_API_KEY:'fake-test-key',CODEX_BASE_URL:'https://example.invalid',REVIEW_CODEX_MODEL:'test',REVIEW_CODEX_BIN:path.join(data,'missing-cli'),DEEPSEEK_API_KEY:'',MINERU_TOKEN:'fake-parser-key'}});
+ // An unowned historical review: the first registered account adopts it.
+ const seed=await openDatabase(config);
+ try{
+  const version=await seed.createVersion({owner:null,filename:'paper.pdf',storagePath:pdf,metadata:null,bytes:null,createdAt:'2026-01-01'});
+  const parsed=await seed.saveParse(version.id,{blocks:[{id:'b1',page:1,text:'论文内容'}],pageSizes:[[595,841]]},path.dirname(pdf),'legacy');
+  await seed.createTask({id:'legacy-run',owner_id:null,paper_version_id:version.id,provider:'gpt',model:null,status:'succeeded',stage:'completed',created_at:'2026-01-01',progress:100,message:'历史评审已迁移',request:{snapshots,metadata:null,standard:null,prompt_template_version:'legacy'}});
+  await seed.saveRun('legacy-run',parsed.id,{reviews:dimensions.map(d=>({dimension:d,summary:'<script>unsafe</script>',issues:[]}))},{runId:'legacy-run',createdAt:'2026-01-01',legacy:true});
+ }finally{await seed.close();}
+ const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,...testDatabaseEnv(config),REVIEW_SKIP_ENV:'1',REVIEW_DATA_DIR:data,REVIEW_PORT:'0',CODEX_API_KEY:'fake-test-key',CODEX_BASE_URL:'https://example.invalid',REVIEW_CODEX_MODEL:'test',REVIEW_CODEX_BIN:path.join(data,'missing-cli'),DEEPSEEK_API_KEY:'',MINERU_TOKEN:'fake-parser-key'}});
  let stderr='';child.stderr.on('data',d=>stderr+=d);
  const base=await new Promise((resolve,reject)=>{let output='';child.stdout.on('data',d=>{output+=d;const m=output.match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});child.on('error',reject);child.on('exit',code=>reject(Error('Server exited '+code+stderr)));});
  function client(){let cookie='';return async(url,options={})=>{
@@ -61,10 +68,9 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
   assert.equal((await a('/api/prompts/0',post({text:'',base_version:2}))).status,400);
   assert.equal((await (await b('/api/prompts')).json())[0].length,1);
   assert.equal((await a('/api/auth/logout',{method:'POST',headers:{Origin:'https://outside.invalid'}})).status,403);
-  const db=openDatabase(path.join(data,'review.sqlite3'));
-  assert(db.userByName('user_a').credentials.hash);assert(db.db.prepare('SELECT token_hash FROM sessions').all().every(s=>s.token_hash.length===64));
-  assert.deepEqual(db.run('legacy-run').snapshots,original.runs[0].snapshots);db.close();
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(data,'store.json'),'utf8')),original);
+  const db=await openDatabase(config);
+  try{assert((await db.userByName('user_a')).credentials.hash);assert((await db.q('SELECT token_hash FROM sessions')).every(s=>s.token_hash.length===64));
+   assert.deepEqual((await db.run('legacy-run')).snapshots,snapshots);}finally{await db.close();}
   // An invalid local CLI exercises the real job queue without a paid/network model call.
   for(const [provider,filename,content,status] of [['gpt','bad.pdf','not a PDF',400],['gpt','bad.txt','%PDF-1.4',400],['unknown','paper.pdf','%PDF-1.4',400],['deepseek','paper.pdf','%PDF-1.4',400]]){
    const invalid=new FormData();invalid.set('provider',provider);invalid.set('file',new Blob([content]),filename);
@@ -91,7 +97,7 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
   assert.equal((await a('/api/auth/logout',{method:'POST'})).status,200);
   assert.equal((await a('/api/auth/me')).status,401);
  }finally{
-  child.kill();await once(child,'exit');
+  child.kill();await once(child,'exit');await dropDatabase(config);
   assert(path.resolve(data).startsWith(path.resolve(os.tmpdir())+path.sep+'review-accounts-test-'));
   await fs.rm(data,{recursive:true,force:true});
  }

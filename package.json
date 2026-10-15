@@ -6,13 +6,14 @@
     "start": "node scripts/run.mjs start",
     "check": "node scripts/run.mjs check",
     "test": "node scripts/run.mjs test",
-    "migrate": "node scripts/run.mjs migrate",
     "audit:live": "node scripts/run.mjs audit:live",
     "reports:samples": "node scripts/run.mjs reports:samples",
     "reports:generate": "node scripts/run.mjs reports:generate",
-    "backup": "node scripts/run.mjs backup"
+    "backup": "node scripts/run.mjs backup",
+    "import:sqlite": "node scripts/run.mjs import:sqlite"
   },
   "devDependencies": {
+    "better-sqlite3": "12.11.1",
     "linkedom": "0.18.12"
   },
   "description": "文衡谱元团队内部使用的硕博学位论文评审实验平台",
@@ -20,8 +21,8 @@
     "node": ">=24 <25"
   },
   "dependencies": {
-    "better-sqlite3": "12.11.1",
     "katex": "0.18.9",
+    "mysql2": "3.24.4",
     "playwright": "1.64.0"
   }
 }

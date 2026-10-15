@@ -9,11 +9,11 @@ import {validateDetailed} from '../src/review-schema.mjs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-test('SQLite transactions roll back changes and enforce uniqueness',async()=>{
+test('database transactions roll back changes and enforce uniqueness',async()=>{
  const f=await fixtureRepo();try{
-  assert.throws(()=>f.repo.transaction(()=>{f.repo.db.prepare('UPDATE papers SET title=? WHERE id=?').run('changed',f.version.paper_id);throw Error('disk failure');}),/disk failure/);
-  assert.equal(f.repo.paper(f.version.paper_id,f.user.id).title,f.request.metadata.title);
-  assert.throws(()=>f.repo.createUser({...f.user,id:'duplicate'}),{status:409});
+  await assert.rejects(f.repo.transaction(async tx=>{await tx.q('UPDATE papers SET title=? WHERE id=?',['changed',f.version.paper_id]);throw Error('disk failure');}),/disk failure/);
+  assert.equal((await f.repo.paper(f.version.paper_id,f.user.id)).title,f.request.metadata.title);
+  await assert.rejects(f.repo.createUser({...f.user,id:'duplicate'}),{status:409});
  }finally{await f.cleanup();}
 });
 
@@ -57,13 +57,13 @@ test('assembled input has one common opening/output section and all six variable
 
 test('review archives exact input and preserves submitted snapshots across later changes',async()=>{
  const f=await fixtureRepo();try{
-  f.repo.appendPrompt(f.user.id,0,{text:'后续修改不应影响旧任务',base_version:1});
+  await f.repo.appendPrompt(f.user.id,0,{text:'后续修改不应影响旧任务',base_version:1});
   const expected=validateDetailed(detailedFixture(),blocks,f.request,f.task.id);let calls=0;
   const engine=createReviewEngine(f.repo,f.dir,{request:async()=>{}},{parse:async()=>({blocks,pageSizes:[[595,841],[595,841]]}),model:async()=>++calls===1?detailedFixture():synthesisFixture(expected)});
-  await engine.enqueue(f.task.id);const result=f.repo.run(f.task.id);
-  assert.equal(f.repo.task(f.task.id).status,'succeeded');assert.equal(calls,2);assert.equal(result.snapshots[0].version,1);
+  await engine.enqueue(f.task.id);const result=await f.repo.run(f.task.id);
+  assert.equal((await f.repo.task(f.task.id)).status,'succeeded');assert.equal(calls,2);assert.equal(result.snapshots[0].version,1);
   const prompt=await fsp.readFile(path.join(f.dir,'runs',f.task.id,'prompt.txt'),'utf8');assert(!prompt.includes('后续修改不应影响旧任务'));assert(prompt.includes(result.snapshots[0].text));
-  assert.equal(f.repo.db.prepare('SELECT count(*) n FROM review_attempts').get().n,2);
+  assert.equal(await f.repo.count('review_attempts'),2);
  }finally{await f.cleanup();}
 });
 

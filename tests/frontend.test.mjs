@@ -193,6 +193,10 @@ test('one review page: compose with chosen prompt versions, then the finished re
  await tick();
  h.click(h.document.querySelector('[data-page="review"]'));await tick();
  assert(h.$('page-workspace').classList.contains('is-compose'));assert.equal(h.$('prompts-view').parentElement.id,'compose-prompts-slot');
+ const panel=name=>h.document.querySelector(`[data-compose-panel="${name}"]`);
+ assert(!panel('prompts').classList.contains('hidden'));assert(panel('tasks').classList.contains('hidden'));assert(h.$('refresh-tasks').classList.contains('hidden'));
+ h.click(h.document.querySelector('.compose-tabs [data-compose-tab="tasks"]'));assert(!panel('tasks').classList.contains('hidden'));assert(panel('prompts').classList.contains('hidden'));
+ h.click(h.document.querySelector('.compose-tabs [data-compose-tab="prompts"]'));assert(!panel('prompts').classList.contains('hidden'));
  assert.equal(h.$('prompt-text').value,'第二版提示词');
  h.$('version-select').value='1';h.event(h.$('version-select'),'change');
  assert.equal(h.$('prompt-text').value,h.store.prompts[0][0].text);assert(h.$('prompt-status').textContent.includes('历史版本 v1'));
@@ -200,6 +204,7 @@ test('one review page: compose with chosen prompt versions, then the finished re
  h.fill('upload',{degree_level:metadata.degree_level,degree_category:metadata.degree_category,discipline_category:metadata.discipline_category,major:metadata.major,completion_month:metadata.completion_month});
  h.event(h.$('review-form'),'submit');await tick();
  const request=h.requests.find(r=>r.url==='/api/review');assert.deepEqual(JSON.parse(request.options.body.get('prompt_versions')),[1,1,1,1,1,1]);
+ assert(!panel('tasks').classList.contains('hidden'));assert(h.document.querySelector('.compose-tabs [data-compose-tab="tasks"]').classList.contains('active'));
  assert(h.$('page-workspace').classList.contains('is-compose'));
  tasks.push({task_id:'test-task',filename:'paper.pdf',provider:'gpt',model:'test-gpt',status:'succeeded',stage:'completed',progress:100,created_at:'2026-01-03T00:00:00Z',run_id:'run-one',report:{status:'ready'},metadata:null,can_retry:false});
  await vm.runInContext('refreshPortal()',h.context);await tick();

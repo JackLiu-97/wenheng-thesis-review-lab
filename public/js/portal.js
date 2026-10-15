@@ -21,6 +21,14 @@ function setMode(compose){
  if(composeMode){$('compose-prompts-slot').appendChild(view);view.classList.remove('hidden');renderPromptView();if(!promptVersions)loadPromptVersions();}
  else{document.querySelector('.review-pane').insertBefore(view,$('history-view'));tab(document.querySelector('[data-tab].active')?.dataset.tab||'results');}
 }
+// Right-hand card of the compose view: prompt configuration or review progress.
+let composeTab='prompts';
+function setComposeTab(name){
+ composeTab=name==='tasks'?'tasks':'prompts';
+ document.querySelectorAll('[data-compose-tab]').forEach(b=>{if(!b.closest('.compose-tabs'))return;const on=b.dataset.composeTab===composeTab;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on));});
+ document.querySelectorAll('[data-compose-panel]').forEach(p=>p.classList.toggle('hidden',p.dataset.composePanel!==composeTab));
+ $('refresh-tasks').classList.toggle('hidden',composeTab!=='tasks');
+}
 function setPage(name,updateHash=true,compose){
  if(name==='review'){name='workspace';compose=true;}
  if(!['dashboard','history','workspace','profile'].includes(name))name='dashboard';
@@ -159,7 +167,7 @@ function renderTaskLists(){
  $('task-list').querySelectorAll('[data-task-log]').forEach(box=>{const top=scroll.get(box.dataset.taskLog);box.scrollTop=top===undefined||top===Infinity?box.scrollHeight:top;});
  animateBars($('task-list'));
  if($('dash-tasks')){for(const [k,v] of previous)lastProgress.set(k,v);const active=tasks.filter(t=>t.status!=='succeeded').sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9)).slice(0,4);$('dash-tasks').innerHTML=active.map(t=>taskRow(t,true)).join('')||'<div class="empty-state empty-state--inline">当前没有排队或进行中的任务</div>';animateBars($('dash-tasks'));}
- const active=accountTasks.filter(isActiveTask).length;if($('task-active-count')){$('task-active-count').textContent=active?`${active} 个进行中`:'';$('task-active-count').classList.toggle('hidden',!active);}
+ const active=accountTasks.filter(isActiveTask).length;if($('task-active-count')){$('task-active-count').textContent=active?String(active):'';$('task-active-count').title=active?`${active} 个进行中`:'';$('task-active-count').classList.toggle('hidden',!active);}
 }
 function toggleTask(id){if(expandedTasks.has(id))expandedTasks.delete(id);else{expandedTasks.add(id);loadTaskLog(id);}renderTaskLists();}
 document.addEventListener('click',event=>{
@@ -255,10 +263,10 @@ $('review-form').addEventListener('submit',async event=>{
  if(files.length>10||files.some(f=>!f.name.toLowerCase().endsWith('.pdf')||f.size>30*1024*1024)){
   $('upload-error').textContent='每次最多提交 10 份 PDF，每份不超过 30 MB';$('upload-error').classList.remove('hidden');return;
  }
- if(promptSaving||hasPromptDrafts()){toast('请先保存提示词草稿，或载入最新版本放弃修改');return;}
+ if(promptSaving||hasPromptDrafts()){setComposeTab('prompts');toast('请先保存提示词草稿，或载入最新版本放弃修改');return;}
  if(revisionPaperId&&files.length!==1){toast('修订稿一次只能选择一份文件');return;}
  let metadata;try{metadata=files.map(file=>validateClientMetadata(fileMetadata(file)));}catch(error){$('upload-error').textContent=error.message;$('upload-error').classList.remove('hidden');return;}
- uploading=true;updateUploadModel();$('upload-model').disabled=true;let submitted=0;
+ uploading=true;updateUploadModel();$('upload-model').disabled=true;let submitted=0;setComposeTab('tasks');
  try{
   for(const [index,file] of files.entries()){$('submit-btn').innerHTML=`<span class="loader loader--sm loader--light"></span>正在提交 ${index+1} / ${files.length}`;const form=new FormData();form.set('file',file);form.set('provider',$('upload-model').value);form.set('metadata',JSON.stringify(metadata[index]));const versions=selectedPromptVersions();if(versions)form.set('prompt_versions',JSON.stringify(versions));if(revisionPaperId)form.set('paper_id',revisionPaperId);const accepted=await api('/api/review',{method:'POST',body:form});awaitingTasks.add(accepted.task_id);if(!submitted){expandedTasks.add(accepted.task_id);}submitted++;}
   $('review-form').reset();perFileSettings.clear();revisionPaperId=null;$('revision-notice').classList.add('hidden');droppedFiles=null;$('paper-file').required=true;showFiles();toast(`已提交 ${submitted} 份论文，可在下方评审进度中实时查看；完成后自动打开结果`);
@@ -266,7 +274,8 @@ $('review-form').addEventListener('submit',async event=>{
  finally{uploading=false;$('submit-btn').textContent='开始评审';$('upload-model').disabled=false;updateUploadModel();await refreshPortal();if(submitted&&narrowScreen())$('task-list').scrollIntoView?.({behavior:'smooth',block:'start'});}
 });
 document.addEventListener('click',event=>{
- const page=event.target.closest('[data-page]');if(page)setPage(page.dataset.page);
+ const page=event.target.closest('[data-page]');if(page){setPage(page.dataset.page);if(page.dataset.composeTab)setComposeTab(page.dataset.composeTab);}
+ const composeButton=event.target.closest('.compose-tabs [data-compose-tab]');if(composeButton)setComposeTab(composeButton.dataset.composeTab);
  const run=event.target.closest('[data-open-run]');if(run)openRun(run.dataset.openRun);
  // Whole record rows open the review, except clicks on their own links and buttons.
  const row=event.target.closest('[data-row-open]');if(row&&!run&&!event.target.closest('a,button'))openRun(row.dataset.rowOpen);
@@ -349,7 +358,7 @@ document.addEventListener('click',event=>{
 });
 document.addEventListener('keydown',event=>{
  const target=event.target||{},typing=!!(target.closest&&target.closest('input,textarea,select,[contenteditable="true"]'));
- const promptsOpen=activePage==='workspace'&&!$('prompts-view').classList.contains('hidden');
+ const promptsOpen=activePage==='workspace'&&!$('prompts-view').classList.contains('hidden')&&!(composeMode&&composeTab!=='prompts');
  if((event.metaKey||event.ctrlKey)&&String(event.key).toLowerCase()==='s'&&promptsOpen){event.preventDefault();savePrompt();return;}
  if(event.key==='Escape'){
   if($('sidebar').classList.contains('sidebar--open')){setPage(activePage,false);return;}

@@ -32,7 +32,7 @@ test('check results are validated and tighten the recommendation without changin
   assert.throws(()=>validateDetailed(detailedFixture(),blocks,request,f.task.id),/字段不完整/);
   assert(buildSynthesisPrompt(concern,request).includes('专项审查结果'));
   // Saved and read back with evidence attached.
-  const parse=f.repo.saveParse(f.version.id,{blocks,pageSizes:[]},f.dir);const saved=f.repo.saveRun(f.task.id,parse.id,{...concern,overall_summary:'总结',strengths:[],limitations:[],revision_plan:[],recommendation_reason:'理由'});
+  const parse=await f.repo.saveParse(f.version.id,{blocks,pageSizes:[]},f.dir);const saved=await f.repo.saveRun(f.task.id,parse.id,{...concern,overall_summary:'总结',strengths:[],limitations:[],revision_plan:[],recommendation_reason:'理由'});
   assert.equal(saved.compliance.find(c=>c.code==='topic').status,'concern');assert.equal(saved.compliance.find(c=>c.code==='topic').evidence[0].id,'b1');
   const html=reportHtml(saved);assert(html.includes('专项审查'));assert(html.includes('文题一致性'));
  }finally{await f.cleanup();}
