@@ -29,28 +29,37 @@ GPT 后端在临时目录创建独立 CLI 配置，通过子进程环境传入 K
 
 | 字段 | 用途 |
 | --- | --- |
-| `REVIEW_PORT` | 默认 `4173`，只监听 `127.0.0.1` |
+| `REVIEW_PORT` | 默认 `4173` |
+| `REVIEW_HOST` | 监听地址，默认 `127.0.0.1`；服务器直接对外时设为 `0.0.0.0` |
+| `REVIEW_ALLOWED_HOSTS` | 除 `127.0.0.1`、`localhost` 外允许的访问域名或 IP，逗号分隔；其他 Host 请求返回 403 |
 | `REVIEW_DATA_DIR` | 为空时使用项目根目录 `data/`；自定义时建议使用绝对路径 |
 | `PDFTOPPM_BIN` | PDF 页面渲染程序，默认 `pdftoppm` |
 | `REVIEW_SKIP_ENV` | 测试时设置为 `1`，跳过本地 `.env` 加载 |
 
-当前使用 SQLite；`REVIEW_DATABASE_PATH` 默认指向数据目录的 `review.sqlite3`。上传文件在 `data/papers/`，实际提示词和模型输出在 `data/runs/`，PDF 在 `data/reports/`。旧目录通过数据库保留原路径，不要求移动文件。
+数据库为 MySQL，连接配置见下表；表结构与备份见 [数据库说明](database.md)。上传文件在 `data/papers/`，实际提示词和模型输出在 `data/runs/`，PDF 在 `data/reports/`。旧目录通过数据库保留原路径，不要求移动文件。
 
-队列按单任务串行处理，任务、阶段检查点和提交快照持久化。重启自动恢复排队任务，运行中的任务标记中断，等待手动重试。旧模板的 `DATABASE_PATH` 不再使用，应填写 `REVIEW_DATABASE_PATH`。原有本地 `.env` 不会被升级覆盖。
+| 字段 | 默认 | 用途 |
+| --- | --- | --- |
+| `MYSQL_HOST` | `127.0.0.1` | MySQL 地址 |
+| `MYSQL_PORT` | `3306` | MySQL 端口 |
+| `MYSQL_USER` | `wenheng` | 平台账号；需对 `MYSQL_DATABASE` 有全部权限，运行测试还需能创建 `wenheng_test_*` 库 |
+| `MYSQL_PASSWORD` | 空 | 平台账号密码 |
+| `MYSQL_DATABASE` | `wenheng` | 数据库名；账号有权限时启动自动创建 |
+
+队列按单任务串行处理，任务、阶段检查点和提交快照持久化。重启自动恢复排队任务，运行中的任务标记中断，等待手动重试。原有本地 `.env` 不会被升级覆盖；旧的 `REVIEW_DATABASE_PATH`、`DATABASE_PATH` 已不再使用。
 
 ## 提示词与访问边界
 
-`src/prompts.mjs` 维护统一开头、输出规范和拼接函数。各账号六个维度的补充重点在数据库中单独版本化，保存接口检查 `base_version`，冲突返回 409。提交任务时冻结最新快照，每次实际运行保存完整 `prompt.txt`，后续修改不会改变旧记录。
+`src/prompts.mjs` 维护统一开头、输出规范和拼接函数。各账号六个维度的评审提示词在数据库中单独版本化，保存接口检查 `base_version`，冲突返回 409。提交任务时冻结所选版本（默认最新）的快照，每次实际运行保存完整 `prompt.txt`，后续修改不会改变旧记录。
 
 静态服务只返回白名单内的 `public/` 文件。后端源代码、配置、数据与本地备份不作为静态资源提供。论文和报告通过检查账号归属的 API 读取。
 
 ## 上下文与报告运行时
 
-GPT-6.1 Sol 的默认窗口按 [官方模型规格](https://developers.openai.com/api/docs/models/gpt-6.1-sol) 设置为 1,050,000 tokens。128,000 是该模型最大输出量，不是上下文窗口；平台仍预留 12,000 输出预算。若任务在第一次模型调用前被窗口预检拦截，配置调大后点击重试会建立关联的新任务，保留原快照、评审标准和补充重点，复用解析结果，仅更新窗口预算。其他阶段失败仍沿用原快照恢复。
+GPT-6.1 Sol 的默认窗口按 [官方模型规格](https://developers.openai.com/api/docs/models/gpt-6.1-sol) 设置为 1,050,000 tokens。128,000 是该模型最大输出量，不是上下文窗口；平台仍预留 12,000 输出预算。修改 `.env` 中的模型、地址、上下文或输出预算并重启后，对失败任务点击重试会建立关联的新任务：保留原快照、评审标准和提示词，使用当前模型配置，复用解析结果，同一模型已完成的阶段不重复调用。配置未变时，重试在原任务上从已完成阶段继续。
 
 | 字段 | 默认 | 用途 |
 | --- | --- | --- |
-| REVIEW_DATABASE_PATH | 数据目录/review.sqlite3 | 本机 SQLite 路径 |
 | REVIEW_CODEX_CONTEXT_TOKENS | 五个内置 GPT 模型为 1050000；自定义模型为 128000 | GPT 路径上下文预算；显式配置可覆盖默认值 |
 | REVIEW_CODEX_OUTPUT_TOKENS | 12000 | GPT 输出预留，用于完整输入检查 |
 | DEEPSEEK_CONTEXT_TOKENS | Flash／Pro 为 1000000；自定义模型为 128000 | DeepSeek 路径上下文预算；显式配置可覆盖默认值 |

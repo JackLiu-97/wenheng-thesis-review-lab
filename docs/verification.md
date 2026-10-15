@@ -1,5 +1,7 @@
 # macOS 验证记录
 
+> 本文记录 2026-10-11 的验收，当时数据库为 SQLite。2026-10-15 起已改用 MySQL，见 [数据库说明](database.md) 与 [服务器部署](deployment.md)。
+
 验证日期：2026-10-11（America/Los_Angeles）。本机环境为 Apple Silicon macOS、Node.js 24.12.0、better-sqlite3 12.11.1 和 Playwright 1.64.0 Chromium。
 
 ## 检查结果

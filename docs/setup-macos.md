@@ -4,7 +4,7 @@
 
 ## 启动和停止
 
-在 Finder 中双击项目根目录的 `START-MACOS.command`。启动器检查数据库与文件引用，在终端启动服务，并自动打开 <http://127.0.0.1:4173/>。
+在 Finder 中双击项目根目录的 `START-MACOS.command`。启动器先连接 MySQL（未启动时会提示），检查数据库与文件引用，在终端启动服务，并自动打开 <http://127.0.0.1:4173/>。
 
 使用原有账号和密码登录。保持启动的终端窗口打开；停止时在该窗口按 `Control+C`。如果提示端口被占用，先检查是否已经有一个文衡窗口在运行。
 
@@ -25,7 +25,7 @@
 ## 本机环境
 
 - Node.js 24：使用本机 nvm 安装；双击启动脚本会自动寻找 Node 24。
-- SQLite：npm 依赖已重新安装为 macOS ARM64 版本。
+- MySQL：Homebrew 安装的 MySQL，平台账号为 `wenheng`，连接配置在 `.env` 的 `MYSQL_*`。电脑重启后需先启动 MySQL（`brew services start mysql` 可设为开机自启）。
 - Playwright Chromium：已安装 macOS ARM64 浏览器，用于报告 PDF 和浏览器测试。
 - Poppler：本机使用 `runtime/macos/poppler/` 中的组件。该目录不上传 Git；从仓库获取项目后需安装 Poppler 或配置 `PDFTOPPM_BIN`。
 - GPT CLI：`.env` 的 `REVIEW_CODEX_BIN` 指向本机已安装的程序。
@@ -35,9 +35,9 @@
 
 ## 数据和备份
 
-业务数据库是 `data/review.sqlite3`。启动器每次启动都会根据数据库中记录的项目根目录检查并修正文件引用，因此移动整个项目文件夹后仍可直接启动。本次配置前的数据库、配置和修改前代码保存在 `local/macos-setup-backup-*`；数据库中的 15 个文件引用已迁移到本机目录，账号和评审内容保持不变。
+业务数据库是本机 MySQL 的 `wenheng` 库；原 SQLite 数据（`data/review.sqlite3`）已通过 `npm run import:sqlite` 导入，原文件保留未改动。论文、解析结果与报告仍在 `data/`。启动器每次启动都会根据数据库中记录的项目根目录检查并修正文件引用，因此移动整个项目文件夹后仍可直接启动。
 
-如需移动整个项目，先停止服务，再完整移动项目，最后使用 `START-MACOS.command` 启动，它会重新定位数据库引用。历史归档数据库和 JSON 文件保留原样。
+如需移动整个项目，先停止服务，再完整移动项目，最后使用 `START-MACOS.command` 启动，它会重新定位数据库中的文件路径。备份见 [数据库说明](database.md)。
 
 原 Windows 便携包的启动脚本、运行组件和迁移说明已移除。`scripts/relocate-data.mjs` 负责移动项目目录后的路径更新，并保留旧备份路径的读取兼容。
 
