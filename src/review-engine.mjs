@@ -5,6 +5,7 @@ import {parseMineru} from './parser.mjs';
 import {callModel,checkContext,safeError,transient,modelConfig} from './models.mjs';
 import {buildPrompt,buildSynthesisPrompt} from './prompts.mjs';
 import {stageProgress} from './progress.mjs';
+import {priceUsage} from './pricing.mjs';
 import {detailedSchemaFor,synthesisSchema,validateDetailed,validateSynthesis} from './review-schema.mjs';
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
@@ -17,14 +18,16 @@ export function createReviewEngine(repo,dataDir,reports,{parse=parseMineru,model
    const stem=path.join(dir,stage+'-'+crypto.randomUUID());const input=stem+'.prompt.txt';await fs.writeFile(input,current,'utf8');
    // Keep the familiar first-stage prompt path for audit and manual inspection.
    if(stage==='reviewing'&&!corrected)await fs.writeFile(path.join(dir,'prompt.txt'),current,'utf8');
-   const attempt=await repo.attempt(task.id,stage,input);let outputPath=null,raw='';
+   const attempt=await repo.attempt(task.id,stage,input);let outputPath=null,raw='',billing=null;
+   // Usage is priced at call time so later price changes do not rewrite history.
+   const onUsage=usage=>{billing={...priceUsage(task.request.model_config,usage,new Date()),usage};};
    try{
-    raw=await model(current,dir,task.request.model_config,schema);if(typeof raw!=='string')raw=JSON.stringify(raw);
+    raw=await model(current,dir,task.request.model_config,schema,{onUsage});if(typeof raw!=='string')raw=JSON.stringify(raw);
     outputPath=stem+'.result.json';await fs.writeFile(outputPath,raw,'utf8');
     let value;try{value=JSON.parse(raw);}catch{throw Object.assign(Error('模型未输出有效 JSON'),{validation:true});}
-    const result=validate(value);await repo.finishAttempt(attempt.id,'succeeded',outputPath);return result;
+    const result=validate(value);await repo.finishAttempt(attempt.id,'succeeded',outputPath,null,billing);return result;
    }catch(error){
-    await repo.finishAttempt(attempt.id,'failed',outputPath,safeError(error));
+    await repo.finishAttempt(attempt.id,'failed',outputPath,safeError(error),billing);
     if(error.validation&&!corrected){corrected=true;await repo.updateTask(task.id,{message:(stage==='reviewing'?'六维度评审':'综合评议')+'输出未通过校验，正在让模型纠正'});current=prompt+'\n\n上一次输出未通过校验：'+safeError(error)+'\n请完整重新输出，修正结构和引用，不改变原有证据规则。上一次输出仅用于纠错：\n'+raw;continue;}
     if(transient(error)&&transientCount<2){await repo.updateTask(task.id,{message:`模型服务暂时不可用，第 ${transientCount+1} 次自动重试`});await sleep(1000*2**transientCount++);continue;}
     throw error;

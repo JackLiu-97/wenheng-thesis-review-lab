@@ -1,0 +1,18 @@
+{
+  "_source": "https://api-docs.deepseek.com/quick_start/pricing （2026-10-15 查阅）",
+  "_note": "单位：美元 / 百万 token。高峰时段为周一至周五 UTC 01:00–04:00 与 06:00–10:00；官方说明中国法定节假日全天按非高峰计价，平台未识别节假日，节假日的调用会按高峰价估算（略偏高）。usd_to_cny 仅用于页面上的人民币参考价，可按需修改。",
+  "usd_to_cny": 7.1,
+  "peak_hours_utc": [[1, 4], [6, 10]],
+  "models": {
+    "deepseek-flash": {
+      "aliases": ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
+      "peak": {"input_cache_hit": 0.006, "input_cache_miss": 0.3, "output": 1.2},
+      "off_peak": {"input_cache_hit": 0.003, "input_cache_miss": 0.15, "output": 0.6}
+    },
+    "deepseek-v4-pro": {
+      "aliases": [],
+      "peak": {"input_cache_hit": 0.044, "input_cache_miss": 1.32, "output": 3.96},
+      "off_peak": {"input_cache_hit": 0.022, "input_cache_miss": 0.66, "output": 1.98}
+    }
+  }
+}

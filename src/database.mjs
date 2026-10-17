@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {dimensions,standard} from './standards.mjs';
 import {defaultPrompts,focusText,legacyDefaultFocus,defaultFocus} from './prompts.mjs';
+import {pricingTable} from './pricing.mjs';
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const encode=v=>JSON.stringify(v??null);
@@ -197,11 +198,33 @@ export class Repository{
   const row={id:id(),task_id:taskId,stage,attempt_no:n,status:'running',input_path:inputPath,output_path:null,error:null,started_at:now(),finished_at:null};
   await tx.insert('review_attempts',row);await tx.logEvent(taskId,stage,'info',`${stageNames[stage]||stage}：第 ${n} 次模型调用开始`);return row;
  });}
- async finishAttempt(attemptId,status,outputPath,error=null){
-  await this.q('UPDATE review_attempts SET status=?,output_path=?,error=?,finished_at=? WHERE id=?',[status,outputPath,error,now(),attemptId]);
+ // billing: token counts and cost from priceUsage, plus the raw provider usage; null when the call returned no usage.
+ async finishAttempt(attemptId,status,outputPath,error=null,billing=null){
+  await this.q('UPDATE review_attempts SET status=?,output_path=?,error=?,finished_at=?,input_tokens=?,cache_hit_tokens=?,output_tokens=?,reasoning_tokens=?,cost_usd=?,price_tier=?,usage_json=? WHERE id=?',
+   [status,outputPath,error,now(),billing?.input_tokens??null,billing?.cache_hit_tokens??null,billing?.output_tokens??null,billing?.reasoning_tokens??null,billing?.cost_usd??null,billing?.price_tier??null,billing?.usage?encode(billing.usage):null,attemptId]);
   const a=await this.one('SELECT task_id,stage,attempt_no,started_at,finished_at FROM review_attempts WHERE id=?',[attemptId]);if(!a)return;
   const seconds=Math.max(0,Math.round((new Date(a.finished_at)-new Date(a.started_at))/1000)),name=stageNames[a.stage]||a.stage;
-  await this.logEvent(a.task_id,a.stage,status==='succeeded'?'success':'warning',status==='succeeded'?`${name}：第 ${a.attempt_no} 次模型调用完成，用时 ${seconds} 秒`:`${name}：第 ${a.attempt_no} 次模型调用失败（用时 ${seconds} 秒）${error?'：'+error:''}`);
+  const rate=pricingTable().usd_to_cny,usage=billing?.input_tokens!=null?`；输入 ${billing.input_tokens.toLocaleString('en-US')} / 输出 ${billing.output_tokens.toLocaleString('en-US')} token${billing.cost_usd!=null?`，约 ¥${(billing.cost_usd*rate).toFixed(3)}（$${billing.cost_usd.toFixed(4)}）`:''}`:'';
+  await this.logEvent(a.task_id,a.stage,status==='succeeded'?'success':'warning',status==='succeeded'?`${name}：第 ${a.attempt_no} 次模型调用完成，用时 ${seconds} 秒${usage}`:`${name}：第 ${a.attempt_no} 次模型调用失败（用时 ${seconds} 秒${usage}）${error?'：'+error:''}`);
+ }
+ // A task and the failed tasks it was retried from (retry_of_task_id chain), newest first.
+ async taskChain(taskId){
+  const ids=[];let current=taskId;
+  while(current&&!ids.includes(current)&&ids.length<20){ids.push(current);const row=await this.one('SELECT request_snapshot_json FROM review_tasks WHERE id=?',[current]);current=row?decode(row.request_snapshot_json,{}).retry_of_task_id:null;}
+  return ids;
+ }
+ // Token and cost totals over every model call of the given tasks, failed and corrective calls included.
+ async usageSummary(taskIds){
+  const attempts=taskIds.length?await this.q(`SELECT task_id,stage,attempt_no,status,started_at,finished_at,input_tokens,cache_hit_tokens,output_tokens,reasoning_tokens,cost_usd,price_tier FROM review_attempts WHERE task_id IN (${taskIds.map(()=>'?').join(',')}) ORDER BY started_at`,taskIds):[];
+  const sum=key=>attempts.reduce((n,a)=>n+(a[key]||0),0),recorded=attempts.filter(a=>a.input_tokens!=null);
+  return {calls:attempts.length,failed_calls:attempts.filter(a=>a.status!=='succeeded').length,unrecorded_calls:attempts.length-recorded.length,unpriced_calls:recorded.filter(a=>a.cost_usd==null).length,
+   input_tokens:sum('input_tokens'),cache_hit_tokens:sum('cache_hit_tokens'),output_tokens:sum('output_tokens'),reasoning_tokens:sum('reasoning_tokens'),cost_usd:Math.round(sum('cost_usd')*1e6)/1e6,usd_to_cny:pricingTable().usd_to_cny,attempts};
+ }
+ // Per-task totals for the task list (own calls only).
+ async usageByTask(taskIds){
+  if(!taskIds.length)return new Map();
+  const rows=await this.q(`SELECT task_id,count(*) calls,sum(status<>'succeeded') failed_calls,sum(input_tokens IS NULL) unrecorded_calls,coalesce(sum(input_tokens),0) input_tokens,coalesce(sum(output_tokens),0) output_tokens,coalesce(sum(cost_usd),0) cost_usd FROM review_attempts WHERE task_id IN (${taskIds.map(()=>'?').join(',')}) GROUP BY task_id`,taskIds);
+  return new Map(rows.map(r=>[r.task_id,{calls:Number(r.calls),failed_calls:Number(r.failed_calls),unrecorded_calls:Number(r.unrecorded_calls),input_tokens:Number(r.input_tokens),output_tokens:Number(r.output_tokens),cost_usd:Number(r.cost_usd)}]));
  }
  saveRun(taskId,parseId,result,{runId=taskId,createdAt=now(),legacy=false}={}){return this.transaction(async tx=>{
   await tx.insert('review_runs',{id:runId,task_id:taskId,parse_result_id:parseId,result_schema_version:legacy?1:2,overall_summary:result.overall_summary||null,strengths_json:encode(result.strengths||[]),limitations_json:encode(result.limitations||[]),revision_plan_json:encode(result.revision_plan||[]),recommendation_reason:result.recommendation_reason||null,total_score:result.total_score??null,grade:result.grade||null,recommendation:result.recommendation||null,assessment_status:legacy?'legacy':result.assessment_status,compliance_json:result.compliance?encode(result.compliance.map(({evidence,...c})=>c)):null,created_at:createdAt});
@@ -225,7 +248,7 @@ export class Repository{
   const evidenceRows=await this.q('SELECT e.issue_id,b.source_block_id FROM issue_evidence e JOIN review_issues i ON i.id=e.issue_id JOIN dimension_reviews d ON d.id=i.dimension_review_id JOIN document_blocks b ON b.id=e.block_id WHERE d.run_id=? ORDER BY e.issue_id,e.sequence_no',[runId]);
   const evidenceByIssue=new Map();for(const e of evidenceRows){if(!evidenceByIssue.has(e.issue_id))evidenceByIssue.set(e.issue_id,[]);evidenceByIssue.get(e.issue_id).push(e.source_block_id);}
   const reviews=dims.map((d,i)=>({dimension:dimensions[i],dimension_code:d.dimension_code,summary:d.summary,assessment_status:d.assessment_status,score:d.score,weight:d.weight,score_reason:d.score_reason,criteria:decode(d.criteria_json,[]),issues:issueRows.filter(x=>x.dimension_review_id===d.id).map(issue=>{const ids=evidenceByIssue.get(issue.id)||[];return {id:issue.id,criterion_code:issue.criterion_code,severity:issue.severity,title:issue.title,detail:issue.detail,suggestion:issue.suggestion,evidence_status:issue.evidence_status,dimension:dimensions[i],dimension_index:i,evidence_ids:ids,evidence:ids.map(k=>byId.get(k))};})}));
-  return {id:r.id,task_id:task.id,owner_id:task.owner_id,paper_id:v.paper_id,paper_version_id:v.id,version_no:v.version_no,parent_run_id:task.parent_run_id,filename:v.original_filename,created_at:r.created_at,provider:task.provider,model:task.model,metadata:task.request.metadata||null,standard_snapshot:task.request.standard||null,snapshots:task.request.snapshots||[],prompt_template_version:task.request.prompt_template_version||'legacy',result_schema_version:r.result_schema_version,source_pdf:`/api/runs/${r.id}/pdf`,page_count:parsed.page_count,page_sizes:parsed.pageSizes,coordinate_size:parsed.coordinateSize,blocks:parsed.blocks,reviews,total_score:r.total_score,grade:r.grade,recommendation:r.recommendation,assessment_status:r.assessment_status,overall_summary:r.overall_summary,strengths:decode(r.strengths_json,[]),limitations:decode(r.limitations_json,[]),revision_plan:decode(r.revision_plan_json,[]),recommendation_reason:r.recommendation_reason,compliance:decode(r.compliance_json)?.map(c=>({...c,evidence:c.evidence_ids.map(id=>byId.get(id)).filter(Boolean)}))??null,report:await this.report(r.id)};
+  return {id:r.id,task_id:task.id,owner_id:task.owner_id,paper_id:v.paper_id,paper_version_id:v.id,version_no:v.version_no,parent_run_id:task.parent_run_id,filename:v.original_filename,created_at:r.created_at,provider:task.provider,model:task.model,metadata:task.request.metadata||null,standard_snapshot:task.request.standard||null,snapshots:task.request.snapshots||[],prompt_template_version:task.request.prompt_template_version||'legacy',result_schema_version:r.result_schema_version,source_pdf:`/api/runs/${r.id}/pdf`,page_count:parsed.page_count,page_sizes:parsed.pageSizes,coordinate_size:parsed.coordinateSize,blocks:parsed.blocks,reviews,total_score:r.total_score,grade:r.grade,recommendation:r.recommendation,assessment_status:r.assessment_status,overall_summary:r.overall_summary,strengths:decode(r.strengths_json,[]),limitations:decode(r.limitations_json,[]),revision_plan:decode(r.revision_plan_json,[]),recommendation_reason:r.recommendation_reason,compliance:decode(r.compliance_json)?.map(c=>({...c,evidence:c.evidence_ids.map(id=>byId.get(id)).filter(Boolean)}))??null,usage:await this.usageSummary(await this.taskChain(task.id)),report:await this.report(r.id)};
  }
  async runs(owner,filters={}){
   const field=key=>`JSON_UNQUOTE(JSON_EXTRACT(t.request_snapshot_json,'$.metadata.${key}'))`;
@@ -233,8 +256,8 @@ export class Repository{
   if(filters.degree_type){clauses.push(`${field('degree_type')}=?`);values.push(filters.degree_type);}
   if(filters.grade){clauses.push('r.grade LIKE ?');values.push(filters.grade+'%');}
   if(filters.q){clauses.push(`(v.original_filename LIKE ? OR ${field('major')} LIKE ? OR ${field('title')} LIKE ?)`);values.push(...Array(3).fill('%'+filters.q+'%'));}
-  const rows=await this.q(`SELECT r.id,r.created_at,r.total_score,r.grade,r.recommendation,t.provider,t.model,t.request_snapshot_json,v.original_filename filename,v.paper_id,v.id paper_version_id,(SELECT count(*) FROM review_issues i JOIN dimension_reviews d ON d.id=i.dimension_review_id WHERE d.run_id=r.id) issue_count FROM review_runs r JOIN review_tasks t ON t.id=r.task_id JOIN paper_versions v ON v.id=t.paper_version_id WHERE ${clauses.join(' AND ')} ORDER BY r.created_at DESC`,values);
-  return Promise.all(rows.map(async({request_snapshot_json,...r})=>({...r,metadata:decode(request_snapshot_json,{}).metadata||null,report:await this.report(r.id)})));
+  const rows=await this.q(`SELECT r.id,r.task_id,r.created_at,r.total_score,r.grade,r.recommendation,t.provider,t.model,t.request_snapshot_json,v.original_filename filename,v.paper_id,v.id paper_version_id,(SELECT count(*) FROM review_issues i JOIN dimension_reviews d ON d.id=i.dimension_review_id WHERE d.run_id=r.id) issue_count FROM review_runs r JOIN review_tasks t ON t.id=r.task_id JOIN paper_versions v ON v.id=t.paper_version_id WHERE ${clauses.join(' AND ')} ORDER BY r.created_at DESC`,values);
+  return Promise.all(rows.map(async({request_snapshot_json,...r})=>{const {attempts,...usage}=await this.usageSummary(await this.taskChain(r.task_id));return {...r,metadata:decode(request_snapshot_json,{}).metadata||null,usage,report:await this.report(r.id)};}));
  }
  async report(runId){const row=await this.one('SELECT * FROM report_files WHERE run_id=? ORDER BY seq DESC LIMIT 1',[runId]);if(!row)return null;const {seq,...report}=row;return report;}
  async setReport(runId,templateVersion,status,details={}){

@@ -85,3 +85,28 @@ test('a byte-identical PDF reuses the earlier parse instead of calling the parse
   await engine.enqueue(different.id);assert.equal(parses,2);
  }finally{await f.cleanup();}
 });
+test('every model call records usage and cost; a paper total includes failed calls and earlier retried tasks',async()=>{
+ const f=await fixtureRepo();try{
+  const config={...f.request.model_config,provider:'deepseek',selection_id:'deepseek-flash',model:'deepseek-flash'};
+  const request={...f.request,model_config:config};
+  const task=await f.repo.createTask({id:'usage-task',owner_id:f.user.id,paper_version_id:f.version.id,provider:'deepseek',model:'deepseek-flash',request});
+  let output=12000,calls=0;
+  const usage={prompt_tokens:50000,prompt_cache_hit_tokens:10000,prompt_cache_miss_tokens:40000,completion_tokens:8000,completion_tokens_details:{reasoning_tokens:3000}};
+  const engine=createReviewEngine(f.repo,f.dir,{request:async()=>{}},{currentConfig:()=>({...config,output_tokens:output}),parse:async()=>({blocks,pageSizes:[]}),model:async(_p,dir,c,schema,{onUsage})=>{
+   calls++;onUsage(usage);
+   if(schema.properties.dimensions)return detailedFixture();
+   if(c.output_tokens<64000)throw Object.assign(Error('truncated'),{validation:false});
+   return synthesisFixture(validateDetailed(detailedFixture(),blocks,request,'usage-task'));
+  }});
+  await engine.enqueue(task.id);assert.equal((await f.repo.task(task.id)).status,'failed');
+  const rows=await f.repo.q('SELECT status,input_tokens,cache_hit_tokens,output_tokens,reasoning_tokens,cost_usd FROM review_attempts WHERE task_id=? ORDER BY started_at',[task.id]);
+  assert.equal(rows.length,2);assert(rows.every(r=>r.input_tokens===50000&&r.cache_hit_tokens===10000&&r.output_tokens===8000&&r.reasoning_tokens===3000&&r.cost_usd>0));
+  assert(rows.some(r=>r.status==='failed'));
+  assert((await f.repo.taskLog(task.id)).some(e=>/输入 50,000 \/ 输出 8,000 token，约 ¥0\.\d{3}（\$0\.\d{4}）/.test(e.message)));
+  output=64000;const retry=await engine.retry(task.id,f.user.id);await engine.enqueue(retry);
+  const run=await f.repo.run((await f.repo.task(retry)).run_id);
+  assert.equal(run.usage.calls,3);assert.equal(run.usage.failed_calls,1);assert.equal(run.usage.input_tokens,150000);assert.equal(run.usage.output_tokens,24000);
+  assert.equal(run.usage.cost_usd,Math.round(rows[0].cost_usd*3*1e6)/1e6);assert.equal(run.usage.attempts.length,3);
+  const byTask=await f.repo.usageByTask([task.id,retry]);assert.equal(byTask.get(task.id).calls,2);assert.equal(byTask.get(retry).calls,1);
+ }finally{await f.cleanup();}
+});

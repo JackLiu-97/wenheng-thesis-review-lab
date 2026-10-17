@@ -10,6 +10,7 @@ RUN npm ci --omit=dev \
  && npx playwright install --with-deps chromium \
  && npm cache clean --force
 COPY assets ./assets
+COPY config ./config
 COPY migrations ./migrations
 COPY public ./public
 COPY src ./src

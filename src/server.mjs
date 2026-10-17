@@ -15,6 +15,7 @@ import {modelOptions,modelConfig,safeError} from './models.mjs';
 import {createReportService,reportHtml,reportTemplateVersion} from './reports.mjs';
 import {createReviewEngine} from './review-engine.mjs';
 import {liveProgress} from './progress.mjs';
+import {pricingTable} from './pricing.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 if(!process.env.REVIEW_SKIP_ENV)try{process.loadEnvFile(path.join(root,'.env'));}catch(error){if(error.code!=='ENOENT')throw error;}
@@ -60,7 +61,7 @@ async function handler(req,res){
   if(req.method==='GET'&&url.pathname==='/api/auth/me')return send(res,200,{user:publicUser(user)});
   if(req.method==='POST'&&url.pathname==='/api/auth/logout'){await auth.logout(req,res);return send(res,200,{ok:true});}
   if(req.method==='POST'&&url.pathname==='/api/auth/password'){await auth.changePassword(user,await jsonBody(req),res);return send(res,200,{ok:true});}
-  if(req.method==='GET'&&url.pathname==='/api/config/status')return send(res,200,{mineru_configured:Boolean(process.env.MINERU_TOKEN),models:modelOptions()});
+  if(req.method==='GET'&&url.pathname==='/api/config/status')return send(res,200,{mineru_configured:Boolean(process.env.MINERU_TOKEN),models:modelOptions(),usd_to_cny:pricingTable().usd_to_cny});
   if(req.method==='GET'&&url.pathname==='/api/review-options')return send(res,200,{...reviewOptions(),models:modelOptions()});
   if(req.method==='POST'&&url.pathname==='/api/review-preview'){
    const input=await jsonBody(req),metadata=validateMetadata(input.metadata,input.filename),request=await snapshot(user.id,metadata,null,input.prompt_versions??null);
@@ -70,8 +71,8 @@ async function handler(req,res){
   if(req.method==='POST'&&/^\/api\/prompts\/\d+$/.test(url.pathname))return send(res,201,await repo.appendPrompt(user.id,Number(url.pathname.split('/')[3]),await jsonBody(req)));
   if(req.method==='GET'&&url.pathname==='/api/tasks'){
    // A failed task that already has a linked retry is superseded and no longer needs attention.
-   const tasks=await repo.tasks(user.id),retried=new Set(tasks.map(t=>t.request.retry_of_task_id).filter(Boolean));
-   return send(res,200,await Promise.all(tasks.map(async t=>({...await publicTask(t),superseded:retried.has(t.id)}))));
+   const tasks=await repo.tasks(user.id),retried=new Set(tasks.map(t=>t.request.retry_of_task_id).filter(Boolean)),usage=await repo.usageByTask(tasks.map(t=>t.id));
+   return send(res,200,await Promise.all(tasks.map(async t=>({...await publicTask(t),superseded:retried.has(t.id),usage:usage.get(t.id)||null}))));
   }
   if(req.method==='GET'&&/^\/api\/tasks\/[^/]+\/log$/.test(url.pathname)){
    const id=url.pathname.split('/')[3];if(!await repo.task(id,user.id))throw fail(404,'任务不存在');return send(res,200,await repo.taskLog(id));

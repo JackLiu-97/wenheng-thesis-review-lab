@@ -129,6 +129,7 @@ test('history search, export, PDF controls, mobile navigation and logout are wir
  h.click(h.document.querySelector('[data-page="history"]'));
  h.$('history-search').value='does-not-exist';h.event(h.$('history-search'),'input');assert(h.$('archive-list').textContent.includes('没有匹配'));
  h.$('history-search').value='test-paper';h.event(h.$('history-search'),'input');assert(h.$('archive-list').querySelector('[data-open-run]'));
+ assert(h.$('archive-list').querySelector('.archive-head').textContent.includes('费用'));assert(h.$('archive-list').querySelector('.archive-col--cost').textContent.includes('未记录'));
  assert.equal(h.$('archive-list').querySelector('a[href*="format=json"]').getAttribute('href'),'/api/runs/run-one/export?format=json');
  h.click(h.$('export'));assert.equal(h.context.location.href,'/api/runs/run-one/export?format=pdf');
  h.click(h.$('zoom-in'));assert.equal(h.$('zoom-label').textContent,'110%');
@@ -180,8 +181,10 @@ test('workspace overview no longer shows contribution/criteria details or rerun 
  assert(!h.$('run-overview').textContent.includes('主要贡献与评价边界'));assert(!h.$('run-overview').textContent.includes('评分依据与优先修改清单'));
  assert.equal(h.document.querySelector('.rerun-settings'),null);assert.equal(h.$('rerun-metadata'),null);
  h.run.compliance=[{code:'training',name:'专业培养要求符合性',status:'pass',finding:'符合专业方向',evidence_ids:[],evidence:[]},{code:'topic',name:'文题一致性',status:'concern',finding:'题目偏大',evidence_ids:['b1'],evidence:[h.run.blocks[0]]},{code:'political',name:'政治方向',status:'pass',finding:'未发现政治方向问题',evidence_ids:[],evidence:[]}];
+ h.run.usage={calls:3,failed_calls:1,unrecorded_calls:0,unpriced_calls:0,input_tokens:150000,cache_hit_tokens:30000,output_tokens:24000,reasoning_tokens:9000,cost_usd:0.0723,usd_to_cny:7.1,attempts:[{task_id:'t',stage:'reviewing',attempt_no:1,status:'failed',input_tokens:50000,cache_hit_tokens:10000,output_tokens:8000,reasoning_tokens:3000,cost_usd:0.0241,price_tier:'peak'}]};
  h.context.testRun=h.run;vm.runInContext('normalizeRun(testRun);renderAll()',h.context);
- assert(h.$('run-overview').textContent.includes('专项审查 1 项需关注'));assert.equal(h.document.querySelectorAll('.compliance-card').length,3);assert(h.document.querySelector('.compliance-card.is-concern [data-locate-block="b1"]'));
+ assert(h.$('run-overview').textContent.includes('专项审查 1 项需关注'));
+ assert(h.$('run-overview').textContent.includes('费用 ¥0.513'));assert(h.document.querySelector('.usage-panel').textContent.includes('$0.0723'));assert(h.document.querySelector('.usage-panel').textContent.includes('失败 1 次（已计费）'));assert(h.document.querySelector('.usage-panel').textContent.includes('15 万'));assert.equal(h.document.querySelectorAll('.compliance-card').length,3);assert(h.document.querySelector('.compliance-card.is-concern [data-locate-block="b1"]'));
  h.click(h.document.querySelector('[data-tab="prompts"]'));await tick();
  assert(h.document.querySelector('[data-tab="prompts"]').textContent.includes('提示词配置'));
  assert(h.$('prompt-criteria').textContent.includes('问题与研究范围'));
