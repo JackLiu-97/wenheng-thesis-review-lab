@@ -149,9 +149,11 @@ test('login/register forms submit credentials and show a useful error for mismat
   vm.runInContext(fs.readFileSync(new URL('../public/js/auth.js',import.meta.url),'utf8'),context);
   document.getElementById(register?'reg-username':'login-username').value='tester';
   document.getElementById(register?'reg-password':'login-password').value='test-password';
+  if(register)document.getElementById('reg-invite').value=' invite-code ';
   if(register){document.getElementById('reg-confirm').value='mismatch';document.querySelector('form').dispatchEvent(new Event('submit',{cancelable:true}));await tick();assert.equal(requests.length,0);assert(!document.getElementById('auth-message').classList.contains('hidden'));document.getElementById('reg-confirm').value='test-password';}
   document.querySelector('form').dispatchEvent(new Event('submit',{cancelable:true}));await tick();
   assert.equal(requests[0].url,register?'/api/auth/register':'/api/auth/login');assert.equal(context.destination,'/#dashboard');
+  if(register)assert.equal(requests[0].data.invite_code,'invite-code');else assert.equal(requests[0].data.invite_code,undefined);
  }
 });
 

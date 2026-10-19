@@ -10,7 +10,7 @@ form.addEventListener('submit',async event=>{
  if(register&&password!==document.getElementById('reg-confirm').value){message.textContent='两次输入的密码不一致';message.classList.remove('hidden');return;}
  button.disabled=true;
  try{
-  const response=await fetch('/api/auth/'+(register?'register':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,...(register?{phone:document.getElementById('reg-phone').value.trim()}:{})})});
+  const response=await fetch('/api/auth/'+(register?'register':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,...(register?{phone:document.getElementById('reg-phone').value.trim(),invite_code:document.getElementById('reg-invite').value.trim()}:{})})});
   const result=await response.json();if(!response.ok)throw Error(result.error||'提交失败');
   window.location.replace('/#dashboard');
  }catch(error){message.textContent=error.message;message.classList.remove('hidden');}

@@ -11,7 +11,12 @@ async function passwordMatches(password,credentials){
  const candidate=await passwordHash(password,credentials.salt);
  return crypto.timingSafeEqual(Buffer.from(candidate.hash,'hex'),Buffer.from(credentials.hash,'hex'));
 }
-export function createAuth({repo}){
+// Registration requires the invite code when REVIEW_INVITE_CODE is set; compared in constant time.
+function inviteMatches(input,expected){
+ const digest=v=>crypto.createHash('sha256').update(String(v)).digest();
+ return typeof input==='string'&&crypto.timingSafeEqual(digest(input.trim()),digest(expected));
+}
+export function createAuth({repo,inviteCode=process.env.REVIEW_INVITE_CODE||''}){
  const ttl=7*24*60*60*1000,attempts=new Map();
  const cookie=(token,age)=>`review_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}`;
  const getToken=req=>String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('review_session='))?.slice(15)||'';
@@ -32,7 +37,8 @@ export function createAuth({repo}){
  }
  async function register(input,req,res){
   throttle(req);
-  const {username,password,phone=''}=input||{};
+  const {username,password,phone='',invite_code}=input||{};
+  if(inviteCode&&!inviteMatches(invite_code,inviteCode))throw fail(403,'邀请码不正确，请向管理员索取');
   if(typeof username!=='string'||!/^[\p{L}\p{N}_-]{3,32}$/u.test(username))throw fail(400,'用户名须为 3–32 位文字、数字、下划线或短横线');
   if(typeof password!=='string'||password.length<8||password.length>128)throw fail(400,'密码须为 8–128 位');
   if(typeof phone!=='string'||(phone&&!/^\+?[\d -]{6,20}$/.test(phone)))throw fail(400,'请输入有效的联系电话，或留空');

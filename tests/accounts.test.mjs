@@ -25,7 +25,7 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
   await seed.createTask({id:'legacy-run',owner_id:null,paper_version_id:version.id,provider:'gpt',model:null,status:'succeeded',stage:'completed',created_at:'2026-01-01',progress:100,message:'历史评审已迁移',request:{snapshots,metadata:null,standard:null,prompt_template_version:'legacy'}});
   await seed.saveRun('legacy-run',parsed.id,{reviews:dimensions.map(d=>({dimension:d,summary:'<script>unsafe</script>',issues:[]}))},{runId:'legacy-run',createdAt:'2026-01-01',legacy:true});
  }finally{await seed.close();}
- const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,...testDatabaseEnv(config),REVIEW_SKIP_ENV:'1',REVIEW_DATA_DIR:data,REVIEW_PORT:'0',CODEX_API_KEY:'fake-test-key',CODEX_BASE_URL:'https://example.invalid',REVIEW_CODEX_MODEL:'test',REVIEW_CODEX_BIN:path.join(data,'missing-cli'),DEEPSEEK_API_KEY:'',MINERU_TOKEN:'fake-parser-key'}});
+ const child=spawn(process.execPath,['src/server.mjs'],{cwd:root,env:{...process.env,...testDatabaseEnv(config),REVIEW_SKIP_ENV:'1',REVIEW_INVITE_CODE:'test-invite',REVIEW_DATA_DIR:data,REVIEW_PORT:'0',CODEX_API_KEY:'fake-test-key',CODEX_BASE_URL:'https://example.invalid',REVIEW_CODEX_MODEL:'test',REVIEW_CODEX_BIN:path.join(data,'missing-cli'),DEEPSEEK_API_KEY:'',MINERU_TOKEN:'fake-parser-key'}});
  let stderr='';child.stderr.on('data',d=>stderr+=d);
  const base=await new Promise((resolve,reject)=>{let output='';child.stdout.on('data',d=>{output+=d;const m=output.match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});child.on('error',reject);child.on('exit',code=>reject(Error('Server exited '+code+stderr)));});
  function client(){let cookie='';return async(url,options={})=>{
@@ -48,8 +48,10 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
    assert((await response.text()).length>0,url);
   }
   for(const url of ['/src/server.mjs','/data/store.json','/local/tmp_forum.html','/config/oral-download.env','/package.json'])assert.equal((await anonymous(url)).status,404,url);
-  assert.equal((await anonymous('/api/auth/register',post({username:'user_a',password:'short'}))).status,400);
-  const registration=await a('/api/auth/register',post({username:'user_a',password:'test-password-a'}));assert.equal(registration.status,200);
+  assert.equal((await anonymous('/api/auth/register',post({username:'user_a',password:'test-password-a'}))).status,403);
+  assert.equal((await anonymous('/api/auth/register',post({username:'user_a',password:'test-password-a',invite_code:'wrong'}))).status,403);
+  assert.equal((await anonymous('/api/auth/register',post({username:'user_a',password:'short',invite_code:'test-invite'}))).status,400);
+  const registration=await a('/api/auth/register',post({username:'user_a',password:'test-password-a',invite_code:' test-invite '}));assert.equal(registration.status,200);
   assert.match(registration.headers.get('set-cookie'),/HttpOnly; SameSite=Strict/);
   const ua=(await registration.json()).user;assert.equal(ua.username,'user_a');assert.equal(ua.credentials,undefined);
   const index=await a('/');assert.equal(index.status,200);
@@ -59,8 +61,8 @@ test('real HTTP account lifecycle, private data, exports and task failure recove
   assert.equal((await a('/api/runs/legacy-run/pdf')).status,200);
   const report=await (await a('/api/runs/legacy-run/export')).text();assert(report.includes('&lt;script&gt;'));assert(!report.includes('<script>'));
   assert.equal((await a('/api/runs/legacy-run/export?format=json')).status,200);
-  assert.equal((await b('/api/auth/register',post({username:'user_a',password:'different-password'}))).status,409);
-  assert.equal((await b('/api/auth/register',post({username:'user_b',password:'test-password-b'}))).status,200);
+  assert.equal((await b('/api/auth/register',post({username:'user_a',password:'different-password',invite_code:'test-invite'}))).status,409);
+  assert.equal((await b('/api/auth/register',post({username:'user_b',password:'test-password-b',invite_code:'test-invite'}))).status,200);
   assert.deepEqual(await (await b('/api/runs')).json(),[]);
   for(const url of ['/api/runs/legacy-run','/api/runs/legacy-run/pdf','/api/runs/legacy-run/pages/1.png','/api/runs/legacy-run/export'])assert.equal((await b(url)).status,404);
   assert.equal((await a('/api/prompts/0',post({text:'账号 A 的重点',base_version:1}))).status,201);
