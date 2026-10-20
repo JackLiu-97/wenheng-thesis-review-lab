@@ -103,7 +103,7 @@ td.num{font-weight:700;color:var(--ink);white-space:nowrap}
 @media screen{body{background:#eeebe7;padding:32px}main{background:#fff;max-width:900px;padding:40px 44px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.06)}}
 `;
 
-export function reportHtml(run,{fontData=null,fontBoldData=null}={}){
+export function reportHtml(run,{fontBase=null}={}){
  const meta=run.metadata||{},policy=run.standard_snapshot,described=describeMetadata(meta);
  const blockMap=new Map((run.blocks||[]).map(b=>[b.id,b]));
  const pages=ids=>(ids||[]).map(id=>blockMap.has(id)?`第 ${blockMap.get(id).page} 页`:id).join('、')||'未定位';
@@ -112,8 +112,7 @@ export function reportHtml(run,{fontData=null,fontBoldData=null}={}){
  const checks=run.compliance||[];let chapter=0;const heading=title=>`<h2 class="chapter-title"><b>${++chapter}</b>${e(title)}</h2>`;
  const metaItems=[['学位',described.degree||'未提供'],['学科门类',described.discipline||'未提供'],['专业',described.major||'未提供'],['完成年月',meta.completion_month||'未提供'],['评审时间',date(run.created_at)],['评审模型',run.model||'未记录'],['论文版本',`第 ${run.version_no||1} 版`],['PDF 页数',`${run.page_count??'—'} 页`]];
  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${e(meta.title||run.filename)} · 文衡评审报告</title><style>
- ${fontData?`@font-face{font-family:ReportCJK;src:url(data:font/ttf;base64,${fontData}) format('truetype');font-weight:400;}`:''}
- ${fontBoldData?`@font-face{font-family:ReportCJK;src:url(data:font/ttf;base64,${fontBoldData}) format('truetype');font-weight:700;}`:''}
+ ${fontBase?['Regular','Bold'].map((w,i)=>`@font-face{font-family:ReportCJK;src:url(${fontBase}NotoSansSC-${w}.ttf) format('truetype');font-weight:${i?700:400};}`).join(''):''}
  ${hasMath([...evidence.values()])?katexCss():''}
  ${styles}
  </style></head><body><main>
@@ -176,16 +175,24 @@ export function reportHtml(run,{fontData=null,fontBoldData=null}={}){
  </main></body></html>`;
 }
 
-let fontPromise;
+// The report is loaded from a placeholder origin so the fonts are fetched as files once; inlining
+// them as base64 (and again in every page's header and footer) needed several GB of memory.
+const reportOrigin='https://report.invalid/',fontDir=fileURLToPath(new URL('../assets/fonts/',import.meta.url));
+const marginFont='font-family:"Noto Sans CJK SC","PingFang SC","Microsoft YaHei",sans-serif;font-size:7.5px;width:100%;margin:0 16mm;color:#8a8f94;display:flex;justify-content:space-between';
 export async function generatePdf(run,target){
- fontPromise??=Promise.all(['Regular','Bold'].map(weight=>fs.readFile(fileURLToPath(new URL(`../assets/fonts/NotoSansSC-${weight}.ttf`,import.meta.url))).then(b=>b.toString('base64'))));
- const [fontData,fontBoldData]=await fontPromise;const html=reportHtml(run,{fontData,fontBoldData});
+ const html=reportHtml(run,{fontBase:reportOrigin});
  const browser=await chromium.launch({headless:true});
  try{
-  const context=await browser.newContext({javaScriptEnabled:false});await context.route('**/*',route=>route.abort());
-  const page=await context.newPage();page.setDefaultTimeout(60000);await page.setContent(html,{waitUntil:'load'});await page.evaluate(()=>document.fonts.ready);
+  const context=await browser.newContext({javaScriptEnabled:false});
+  await context.route('**/*',async route=>{
+   const url=route.request().url(),font=/^https:\/\/report\.invalid\/(NotoSansSC-(?:Regular|Bold)\.ttf)$/.exec(url);
+   if(url===reportOrigin)return route.fulfill({contentType:'text/html; charset=utf-8',body:html});
+   if(font)return route.fulfill({contentType:'font/ttf',body:await fs.readFile(path.join(fontDir,font[1]))});
+   return route.abort();
+  });
+  const page=await context.newPage();page.setDefaultTimeout(60000);await page.goto(reportOrigin,{waitUntil:'load'});await page.evaluate(()=>document.fonts.ready);
   await fs.mkdir(path.dirname(target),{recursive:true});const temporary=target+'.tmp';
-  await page.pdf({path:temporary,format:'A4',printBackground:true,preferCSSPageSize:true,displayHeaderFooter:true,headerTemplate:`<style>@font-face{font-family:ReportHeader;src:url(data:font/ttf;base64,${fontData}) format('truetype');font-weight:400}</style><div style="font-family:ReportHeader;font-size:7.5px;width:100%;margin:0 16mm;padding-bottom:4px;border-bottom:0.5px solid #e6e1db;color:#8a8f94;display:flex;justify-content:space-between"><span style="color:#9c4a2c;letter-spacing:1px">文衡 · 学位论文评审报告</span><span>${e((run.metadata?.title||run.filename).slice(0,48))}</span></div>`,footerTemplate:`<style>@font-face{font-family:ReportFooter;src:url(data:font/ttf;base64,${fontData}) format('truetype');font-weight:400}</style><div style="font-family:ReportFooter;font-size:7.5px;width:100%;margin:0 16mm;color:#8a8f94;display:flex;justify-content:space-between"><span>平台辅助评审，不代表学校正式意见</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`});
+  await page.pdf({path:temporary,format:'A4',printBackground:true,preferCSSPageSize:true,displayHeaderFooter:true,headerTemplate:`<div style='${marginFont};padding-bottom:4px;border-bottom:0.5px solid #e6e1db'><span style="color:#9c4a2c;letter-spacing:1px">文衡 · 学位论文评审报告</span><span>${e((run.metadata?.title||run.filename).slice(0,48))}</span></div>`,footerTemplate:`<div style='${marginFont}'><span>平台辅助评审，不代表学校正式意见</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`});
   await fs.rename(temporary,target);const bytes=await fs.readFile(target);return {path:target,sha256:crypto.createHash('sha256').update(bytes).digest('hex'),generated_at:new Date().toISOString()};
  }finally{await browser.close();}
 }

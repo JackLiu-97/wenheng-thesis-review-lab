@@ -26,7 +26,7 @@ const repo=await openDatabase(databaseConfig());await repo.seedStandard();await 
 const allowedHosts=new Set(['127.0.0.1','localhost',...String(process.env.REVIEW_ALLOWED_HOSTS||'').split(',').map(h=>h.trim().toLowerCase()).filter(Boolean)]);
 const hostAllowed=host=>allowedHosts.has(String(host||'').toLowerCase().replace(/:\d+$/,''));
 const reports=createReportService(repo,dataDir),engine=createReviewEngine(repo,dataDir,reports),auth=createAuth({repo});
-const execFileAsync=promisify(execFile);
+const execFileAsync=promisify(execFile);const pageRenders=new Map();
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.pdf':'application/pdf'};
 const publicFiles=new Set(['/login.html','/register.html','/js/auth.js','/css/theme.css','/index.html','/js/portal.js','/js/app.js','/js/form-controls.js','/js/review-settings.js']);
 const send=(res,status,payload)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(payload));};
@@ -133,8 +133,13 @@ async function handler(req,res){
    if(parts.length===6&&parts[4]==='pages'&&/^\d+\.png$/.test(parts[5])){
     const page=Number(parts[5].replace('.png',''));if(page<1||page>run.page_count)throw fail(404,'页码不存在');
     const folder=path.dirname(version.storage_path),cache=path.join(folder,`page-${page}.png`);
-    if(!fs.existsSync(cache))await execFileAsync(process.env.PDFTOPPM_BIN||'pdftoppm',['-f',String(page),'-l',String(page),'-singlefile','-png','-r','120',version.storage_path,path.join(folder,`page-${page}`)]);
-    await sendFile(res,cache,'image/png');return;
+    if(!fs.existsSync(cache)){
+     // Concurrent requests for one page share a render, which goes to a temporary name so a half-written image is never served.
+     if(!pageRenders.has(cache))pageRenders.set(cache,execFileAsync(process.env.PDFTOPPM_BIN||'pdftoppm',['-f',String(page),'-l',String(page),'-singlefile','-png','-r','120',version.storage_path,cache+'.tmp']).then(()=>fsp.rename(cache+'.tmp.png',cache)).finally(()=>pageRenders.delete(cache)));
+     await pageRenders.get(cache);
+    }
+    // A paper version never changes, so its page images can stay in the browser cache.
+    res.setHeader('Cache-Control','private, max-age=604800, immutable');await sendFile(res,cache,'image/png');return;
    }
    throw fail(404,'资源不存在');
   }
